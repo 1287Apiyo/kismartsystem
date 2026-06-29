@@ -1,0 +1,18 @@
+{
+  "name": "kismart-installment-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.ts",
+    "dev": "node --env-file-if-exists=.env --watch server.ts",
+    "check": "node --check server.ts",
+    "self-test": "node --env-file-if-exists=.env server.ts --self-test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.10.0"
+  }
+}
