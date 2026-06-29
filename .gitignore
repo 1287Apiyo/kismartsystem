@@ -11,3 +11,6 @@ firebase-service-account.json
 *firebase-adminsdk*.json
 *service-account*.json
 secrets/
+
+.vercel
+.env*
