@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
@@ -222,7 +223,7 @@ function loadLocalEnvFile(path: string) {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadLocalEnvFile(join(__dirname, ".env"));
-const DATA_DIR = join(__dirname, "data");
+const DATA_DIR = process.env.VERCEL ? join(tmpdir(), "kismart-data") : join(__dirname, "data");
 const DATA_FILE = join(DATA_DIR, "kismart-state.json");
 const PORT = Number(process.env.KISMART_PORT || 8787);
 const VERSION = "1.1.0";
