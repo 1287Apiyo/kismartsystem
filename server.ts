@@ -4331,7 +4331,7 @@ function applyRestriction(state: AppState, contract: Contract, level: Restrictio
   };
   supersedePendingDeviceCommands(state, contract, level);
   const provider = deviceCommandProvider(contract);
-  const event = {
+  const event: AppState["syncEvents"][number] = {
     id: uid("SYNC"),
     time: nowIso(),
     contractId: contract.id,
@@ -4352,7 +4352,7 @@ function restoreDevice(state: AppState, contract: Contract, action: string) {
   };
   supersedePendingDeviceCommands(state, contract, "Restore");
   const provider = deviceCommandProvider(contract);
-  const event = {
+  const event: AppState["syncEvents"][number] = {
     id: uid("SYNC"),
     time: nowIso(),
     contractId: contract.id,
