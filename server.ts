@@ -239,7 +239,7 @@ const STORAGE_MODE = String(process.env.KISMART_STORAGE || "json").trim().toLowe
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "kismart-456ee";
 const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
 const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
-const FIRESTORE_DATABASE = process.env.KISMART_FIRESTORE_DATABASE || "";
+const FIRESTORE_DATABASE = normalizeFirestoreDatabase(process.env.KISMART_FIRESTORE_DATABASE || "");
 const FIRESTORE_COLLECTION = process.env.KISMART_FIRESTORE_COLLECTION || "kismartApp";
 const FIRESTORE_DOCUMENT = process.env.KISMART_FIRESTORE_DOCUMENT || "state";
 const FIRESTORE_SETTINGS_COLLECTION = process.env.KISMART_FIRESTORE_SETTINGS_COLLECTION || "settings";
@@ -319,7 +319,6 @@ type AutomaticPaymentControlResult = {
 
 let cachedState: AppState | null = null;
 let cachedJsonMtimeMs = 0;
-const sessions = new Map<string, { email: string; expiresAt: number }>();
 const eventClients = new Set<any>();
 let firestoreDb: any = null;
 let firestoreStateDoc: any = null;
@@ -3809,6 +3808,12 @@ function isFirestoreStorage() {
   return STORAGE_MODE === "firestore" && !firestoreUnavailable;
 }
 
+function normalizeFirestoreDatabase(value: string) {
+  const cleaned = clean(value);
+  if (!cleaned || cleaned === "default" || cleaned === "(default)") return "";
+  return cleaned;
+}
+
 function markFirestoreUnavailable(error: unknown) {
   if (!firestoreUnavailable) {
     console.error(`Firestore unavailable; falling back to JSON storage: ${error instanceof Error ? error.message : String(error)}`);
@@ -5517,21 +5522,16 @@ function safeEqual(leftValue: string, rightValue: string) {
 }
 
 function createAdminSession(email: string) {
-  const token = randomBytes(32).toString("base64url");
-  sessions.set(sessionKey(token), { email, expiresAt: Date.now() + SESSION_TTL_MS });
-  return token;
+  const payload = Buffer.from(JSON.stringify({ email, expiresAt: Date.now() + SESSION_TTL_MS })).toString("base64url");
+  return `${payload}.${sessionSignature(payload)}`;
 }
 
 function getAdminSession(request: any) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token) return null;
-  const key = sessionKey(token);
-  const session = sessions.get(key);
+  const session = parseAdminSession(token);
   if (!session) return null;
-  if (session.expiresAt <= Date.now()) {
-    sessions.delete(key);
-    return null;
-  }
+  if (session.expiresAt <= Date.now()) return null;
   return session;
 }
 
@@ -5540,12 +5540,26 @@ function assertAdminSession(request: any) {
 }
 
 function clearAdminSession(request: any) {
-  const token = getCookie(request, SESSION_COOKIE);
-  if (token) sessions.delete(sessionKey(token));
+  getCookie(request, SESSION_COOKIE);
 }
 
-function sessionKey(token: string) {
-  return createHmac("sha256", SESSION_SECRET).update(token).digest("base64url");
+function parseAdminSession(token: string): { email: string; expiresAt: number } | null {
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra) return null;
+  if (!safeEqual(signature, sessionSignature(payload))) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    const email = clean(session?.email);
+    const expiresAt = numberFrom(session?.expiresAt);
+    if (!email || !expiresAt) return null;
+    return { email, expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function sessionSignature(payload: string) {
+  return createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
 }
 
 function getCookie(request: any, name: string) {
@@ -5879,9 +5893,13 @@ async function runSelfTest() {
   const ecosystem = getEcosystemSummary(state);
   const dashboard = renderDashboard();
   const clientScript = renderClientScript();
+  const sessionToken = createAdminSession(ADMIN_EMAIL);
+  const session = getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(sessionToken)}` } });
   if (!summary.total) throw new Error("Expected self-test contract");
   if (!first.progress) throw new Error("Expected enriched contract progress");
   if (!Array.isArray(automation.actions)) throw new Error("Expected automation action list");
+  if (session?.email !== ADMIN_EMAIL) throw new Error("Expected signed admin session to verify");
+  if (getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=invalid-token` } })) throw new Error("Expected invalid admin session to fail");
   if (policy.contractId !== state.contracts[0].id) throw new Error("Expected device policy for first contract");
   if (!policy.allowedPaymentPackages.length) throw new Error("Expected device policy payment app allowlist");
   if (prematureAck.length) throw new Error("Expected device command to wait for applied command ids");
