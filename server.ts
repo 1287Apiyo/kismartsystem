@@ -324,6 +324,7 @@ const eventClients = new Set<any>();
 let firestoreDb: any = null;
 let firestoreStateDoc: any = null;
 let firestoreUnavailable = false;
+let firestoreLastError: string | null = null;
 let automaticPaymentControlRunning = false;
 let automaticPaymentControlLoopStarted = false;
 let runtimeReady: Promise<void> | null = null;
@@ -485,6 +486,7 @@ async function routeRequest(request: any, response: any) {
       service: `${SHOP_NAME} Installment Management Backend`,
       version: VERSION,
       storageMode: isFirestoreStorage() ? "firestore" : "json",
+      firestoreLastError: firestoreLastError,
       time: nowIso(),
     });
     return;
@@ -3816,9 +3818,11 @@ function normalizeFirestoreDatabase(value: string) {
 }
 
 function markFirestoreUnavailable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
   if (!firestoreUnavailable) {
-    console.error(`Firestore unavailable; falling back to JSON storage: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Firestore unavailable; falling back to JSON storage: ${message}`);
   }
+  firestoreLastError = message;
   firestoreUnavailable = true;
   firestoreDb = null;
   firestoreStateDoc = null;
@@ -3973,7 +3977,11 @@ function looksLikeAppState(value: any) {
 
 function firebaseCredential() {
   if (FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return cert(JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON));
+    try {
+      return cert(JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON));
+    } catch (error) {
+      console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", error);
+    }
   }
   if (FIREBASE_SERVICE_ACCOUNT_PATH) {
     const serviceAccountPath = isAbsolute(FIREBASE_SERVICE_ACCOUNT_PATH)
