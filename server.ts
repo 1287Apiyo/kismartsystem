@@ -3940,7 +3940,7 @@ function isFirestoreStorage() {
 
 function normalizeFirestoreDatabase(value: string) {
   const cleaned = clean(value);
-  if (!cleaned || cleaned === "default" || cleaned === "(default)") return "";
+  if (!cleaned || cleaned === "(default)") return "";
   return cleaned;
 }
 
