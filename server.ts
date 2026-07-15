@@ -3712,12 +3712,17 @@ async function loadState(): Promise<AppState> {
 
 async function loadJsonState(): Promise<AppState> {
   if (!existsSync(DATA_FILE)) {
-    const state = seedState();
+    const state = seedJsonState();
     await saveJsonState(state);
     return state;
   }
   const raw = await readFile(DATA_FILE, "utf8");
   const state = normalizeState(JSON.parse(raw) as AppState);
+  const bootstrapContracts = bootstrapContractsFromEnv();
+  if (!state.contracts.length && bootstrapContracts.length) {
+    state.contracts = bootstrapContracts;
+    await saveJsonState(state);
+  }
   cachedJsonMtimeMs = await jsonStateMtimeMs();
   return state;
 }
@@ -5644,6 +5649,27 @@ function seedState(): AppState {
     audit: [],
     contracts: [],
   };
+}
+
+function seedJsonState(): AppState {
+  const state = seedState();
+  const bootstrapContracts = bootstrapContractsFromEnv();
+  if (bootstrapContracts.length) {
+    state.contracts = bootstrapContracts;
+  }
+  return normalizeState(state);
+}
+
+function bootstrapContractsFromEnv(): Contract[] {
+  const raw = clean(process.env.KISMART_BOOTSTRAP_CONTRACTS_JSON);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error(`Bootstrap contracts ignored: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
 }
 
 function seedSettings() {
