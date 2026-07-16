@@ -227,13 +227,19 @@ loadLocalEnvFile(join(__dirname, ".env"));
 const DATA_DIR = process.env.VERCEL ? join(tmpdir(), "kismart-data") : join(__dirname, "data");
 const DATA_FILE = join(DATA_DIR, "kismart-state.json");
 const PORT = Number(process.env.KISMART_PORT || 8787);
-const VERSION = "1.1.0";
+const VERSION = "1.3.0";
 const SHOP_NAME = process.env.KISMART_SHOP_NAME || "KISMART Global";
 const CALLBACK_SECRET = process.env.KISMART_CALLBACK_SECRET || "";
 const DEVICE_SYNC_SECRET = process.env.KISMART_DEVICE_SYNC_SECRET || "";
 const ADMIN_EMAIL = process.env.KISMART_ADMIN_EMAIL || "admin@kismart.local";
 const ADMIN_PASSWORD = process.env.KISMART_ADMIN_PASSWORD || "kismart-admin";
 const SESSION_SECRET = process.env.KISMART_SESSION_SECRET || "local-dev-session-secret";
+// Public HTTPS origin phones use from any network (not LAN). Keep this stable in production.
+const PUBLIC_BASE_URL = resolvePublicBaseUrl(
+  process.env.KISMART_PUBLIC_BASE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || "https://kismartsystem.vercel.app"
+);
+// Binding tokens must not break when only the admin session secret is rotated.
+const BINDING_TOKEN_SECRET = String(process.env.KISMART_BINDING_SECRET || DEVICE_SYNC_SECRET || SESSION_SECRET).trim() || SESSION_SECRET;
 const SESSION_COOKIE = "kismart_admin_session";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const STORAGE_MODE = String(process.env.KISMART_STORAGE || "json").trim().toLowerCase();
@@ -344,8 +350,10 @@ async function startServer(port: number) {
 
   const server = createServer(handleRequest);
 
-  server.listen(port, () => {
-    console.log(`KISMART backend running at http://localhost:${port}`);
+  // Bind all interfaces so LAN and reverse-proxy / tunnel traffic can reach the API.
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`KISMART backend running at http://0.0.0.0:${port}`);
+    console.log(`Public device control URL: ${PUBLIC_BASE_URL}`);
     console.log(`Storage mode: ${isFirestoreStorage() ? `Firestore (${FIREBASE_PROJECT_ID}/${FIRESTORE_DATABASE || "(default)"}/top-level collections)` : `JSON (${DATA_FILE})`}`);
   });
 }
@@ -379,6 +387,18 @@ async function routeRequest(request: any, response: any) {
 
   if (method === "OPTIONS") {
     sendEmpty(response, 204);
+    return;
+  }
+
+  if (method === "GET" && (url.pathname === "/api/health" || url.pathname === "/health")) {
+    sendJson(response, 200, {
+      ok: true,
+      service: SHOP_NAME,
+      version: VERSION,
+      publicBaseUrl: PUBLIC_BASE_URL,
+      storage: isFirestoreStorage() ? "firestore" : "json",
+      time: nowIso(),
+    });
     return;
   }
 
@@ -1186,127 +1206,237 @@ function renderSaasLanding() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#020105">
-  <title>${shop} Device Finance Platform</title>
+  <meta name="theme-color" content="#0d6b45">
+  <meta name="description" content="${shop} phone installment management for contracts, payments, and device control.">
+  <title>${shop} | Phone Installment Management</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="landing-body">
-  <main class="saas-landing">
-    <section class="saas-hero" aria-label="${shop} landing hero">
-      <header class="landing-nav">
-        <a class="landing-logo" href="/" aria-label="KISMART home"><span class="logo-symbol" aria-hidden="true"></span><span>KISMART</span></a>
-        <nav class="landing-menu" aria-label="Landing">
-          <a href="#platform">Platform</a>
-          <a href="#features">Features</a>
-          <a href="#how">Setup</a>
-        </nav>
-        <div class="landing-nav-actions">
-          <a class="landing-link" href="/login">Contact Us</a>
-        </div>
-      </header>
-      <div class="hero-stars" aria-hidden="true">
-        <span></span><span></span><span></span><span></span><span></span>
+<body class="ks-site">
+  <header class="ks-topbar">
+    <div class="ks-wrap ks-topbar-inner">
+      <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+      <nav class="ks-nav" aria-label="Primary">
+        <a href="#solutions">Solutions</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+      </nav>
+      <div class="ks-top-actions">
+        <a class="ks-link" href="/login">Sign in</a>
+        <a class="ks-btn ks-btn-primary" href="/login">Open dashboard</a>
       </div>
-      <div class="hero-content">
-        <p class="eyebrow">Phone financing OS</p>
-        <h1>One Platform,<span>Smarter Installments</span></h1>
-        <p class="landing-copy">From customer onboarding to collections and device controls, KISMART gives your team one calm workspace to run phone financing without scattered records.</p>
-        <div class="landing-actions">
-          <a class="btn" href="/login">Get Started Now</a>
-          <a class="btn secondary" href="#platform">View Platform</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="ks-hero">
+      <div class="ks-wrap ks-hero-grid">
+        <div class="ks-hero-copy">
+          <p class="ks-kicker">Phone installment management</p>
+          <h1>Contracts, payments, and device control in one place.</h1>
+          <p class="ks-lead">KISMART helps phone shops register financed devices, track repayments, follow up on arrears, and control enrolled handsets from the admin dashboard.</p>
+          <div class="ks-actions">
+            <a class="ks-btn ks-btn-primary" href="/login">Sign in to admin</a>
+            <a class="ks-btn ks-btn-ghost" href="#workflow">See how it works</a>
+          </div>
+          <dl class="ks-hero-facts">
+            <div><dt>Collections</dt><dd>Cash, M-Pesa, Airtel, bank</dd></div>
+            <div><dt>Devices</dt><dd>Android agent &amp; Apple MDM</dd></div>
+            <div><dt>Control</dt><dd>Limit, lock, restore remotely</dd></div>
+          </dl>
+        </div>
+        <aside class="ks-hero-card" aria-label="Portfolio preview">
+          <div class="ks-card-head">
+            <span>Admin overview</span>
+            <strong>Portfolio summary</strong>
+          </div>
+          <div class="ks-stat-row">
+            <div class="ks-stat"><span>Collected</span><strong>—</strong></div>
+            <div class="ks-stat"><span>Outstanding</span><strong>—</strong></div>
+            <div class="ks-stat"><span>Restricted</span><strong>—</strong></div>
+          </div>
+          <ul class="ks-task-list">
+            <li><strong>Register contract</strong><span>Customer and IMEI</span><em>Ready</em></li>
+            <li><strong>Record payment</strong><span>Cash or M-Pesa</span><em>Ready</em></li>
+            <li><strong>Device policy</strong><span>Limit or restore</span><em>Ready</em></li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="ks-band" aria-label="Supported methods">
+      <div class="ks-wrap ks-band-inner">
+        <p>Works with</p>
+        <ul>
+          <li>M-Pesa</li>
+          <li>Airtel Money</li>
+          <li>Cash</li>
+          <li>Bank transfer</li>
+          <li>Android agent</li>
+          <li>Apple MDM</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="ks-section" id="solutions">
+      <div class="ks-wrap">
+        <div class="ks-section-head">
+          <p class="ks-kicker">Solutions</p>
+          <h2>Day-to-day tools for the installment desk</h2>
+          <p>Keep customer records, balances, due dates, and device status together so the team does not rely on separate spreadsheets.</p>
+        </div>
+        <div class="ks-quad">
+          <article>
+            <span class="ks-num">01</span>
+            <h3>Register the sale</h3>
+            <p>Capture customer details, phone model, IMEI, deposit, and repayment plan.</p>
+          </article>
+          <article>
+            <span class="ks-num">02</span>
+            <h3>Record payments</h3>
+            <p>Post collections as they come in and keep the balance up to date.</p>
+          </article>
+          <article>
+            <span class="ks-num">03</span>
+            <h3>Follow up arrears</h3>
+            <p>See overdue accounts, send reminders, and apply approved restrictions.</p>
+          </article>
+          <article>
+            <span class="ks-num">04</span>
+            <h3>Control devices</h3>
+            <p>Sync policy to enrolled Android agents or supervised iPhones.</p>
+          </article>
         </div>
       </div>
-      <div class="hero-orbit" aria-hidden="true"></div>
-      <section class="partner-strip" aria-label="Supported operations">
-        <p>Built for growing phone finance teams</p>
+    </section>
+
+    <section class="ks-section ks-section-alt" id="workflow">
+      <div class="ks-wrap ks-split">
+        <div class="ks-section-head tight">
+          <p class="ks-kicker">Workflow</p>
+          <h2>From first deposit to final repayment</h2>
+          <p>A clear operating path for branch staff and managers.</p>
+        </div>
+        <ol class="ks-steps">
+          <li>
+            <strong>Sign in to admin</strong>
+            <p>Use the protected dashboard for contracts, payments, and device actions.</p>
+          </li>
+          <li>
+            <strong>Enroll the handset</strong>
+            <p>Install the device agent, enter the registered IMEI, and complete the first sync.</p>
+          </li>
+          <li>
+            <strong>Manage the book</strong>
+            <p>Record payments and apply limit or restore when policy requires it.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="ks-section" id="features">
+      <div class="ks-wrap">
+        <div class="ks-section-head">
+          <p class="ks-kicker">Features</p>
+          <h2>What the system covers</h2>
+        </div>
+        <div class="ks-features">
+          <article>
+            <img src="/assets/feature-register.jpg" alt="Customer using a smartphone" width="640" height="360" loading="lazy">
+            <div class="ks-feature-body">
+              <p class="ks-tag">Contracts</p>
+              <h3>Customer and device records</h3>
+              <p>Name, phone, national ID, IMEI, plan, branch, and control profile on one contract.</p>
+            </div>
+          </article>
+          <article>
+            <img src="/assets/feature-payment.jpg" alt="Phone payment at a counter" width="640" height="360" loading="lazy">
+            <div class="ks-feature-body">
+              <p class="ks-tag">Payments</p>
+              <h3>Collections ledger</h3>
+              <p>Deposits, cash, M-Pesa, Airtel Money, and bank payments against the right account.</p>
+            </div>
+          </article>
+          <article>
+            <img src="/assets/feature-arrears.jpg" alt="Dashboard used for account follow-up" width="640" height="360" loading="lazy">
+            <div class="ks-feature-body">
+              <p class="ks-tag">Operations</p>
+              <h3>Arrears and notices</h3>
+              <p>Due dates, arrears totals, warning stages, and restore after payment.</p>
+            </div>
+          </article>
+          <article>
+            <img src="/assets/feature-sync.jpg" alt="Smartphone for device sync" width="640" height="360" loading="lazy">
+            <div class="ks-feature-body">
+              <p class="ks-tag">Devices</p>
+              <h3>Policy sync</h3>
+              <p>Android agent and Apple MDM routes for limit, lock, restore, and event history.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="ks-section ks-section-alt" id="security">
+      <div class="ks-wrap">
+        <div class="ks-section-head">
+          <p class="ks-kicker">Security</p>
+          <h2>Built for controlled device finance</h2>
+        </div>
+        <div class="ks-security">
+          <article>
+            <h3>Admin sessions</h3>
+            <p>Dashboard access is session protected for authorized operators only.</p>
+          </article>
+          <article>
+            <h3>Device sync secret</h3>
+            <p>Phone agents use a separate secret from admin login credentials.</p>
+          </article>
+          <article>
+            <h3>Handset binding</h3>
+            <p>First trusted sync binds the contract to the enrolled phone identity.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="ks-cta" id="contact">
+      <div class="ks-wrap ks-cta-inner">
         <div>
-          <span>Mpesa</span>
-          <span>Airtel</span>
-          <span>Samsung</span>
-          <span>Tecno</span>
-          <span>Xiaomi</span>
-          <span>Branch</span>
-          <span>Agent</span>
+          <p class="ks-kicker light">Admin access</p>
+          <h2>Open the dashboard to manage live accounts</h2>
+          <p>Sign in for contracts, collections, and device operations. Use the intake form for new customer details.</p>
         </div>
-      </section>
-    </section>
-
-    <section class="landing-section" id="platform">
-      <div class="section-copy">
-        <p class="eyebrow">Our platform</p>
-        <h2>Everything your installment desk needs in one dashboard.</h2>
-        <p>Contracts, payments, customer follow-up, device policy, and audit trails stay connected from the first deposit to the final repayment.</p>
+        <div class="ks-actions">
+          <a class="ks-btn ks-btn-on-dark" href="/login">Sign in</a>
+          <a class="ks-btn ks-btn-outline-light" href="/intake">Customer intake</a>
+        </div>
       </div>
-      <div class="platform-flow" aria-label="KISMART platform workflow">
-        <article><span>01</span><h3>Start with the sale</h3><p>Create the buyer record, financed phone, repayment terms, and branch notes in one step.</p></article>
-        <article><span>02</span><h3>Keep collections clear</h3><p>Every payment updates the account view, so the team knows what is paid and what is still due.</p></article>
-        <article><span>03</span><h3>Move before arrears grow</h3><p>Due dates, reminders, warning stages, and follow-up actions stay visible for the shop team.</p></article>
-        <article><span>04</span><h3>Close the loop on device status</h3><p>Device policy and restore actions sit beside the customer record instead of living in a separate mess.</p></article>
-      </div>
-    </section>
-
-    <section class="landing-section feature-band" id="features">
-      <div class="section-copy">
-        <p class="eyebrow">Features</p>
-        <h2>Less chasing. More control.</h2>
-      </div>
-      <div class="solution-grid">
-        <article><img src="/assets/feature-register.jpg" alt="Customer using a smartphone"><span>01</span><h3>Register financed phones</h3><p>Customer, device, IMEI, plan, branch, and control profile live together.</p></article>
-        <article><img src="/assets/feature-payment.jpg" alt="Phone payment at a counter"><span>02</span><h3>Track every payment</h3><p>Post deposits, cash, mobile money, and bank payments against the right contract.</p></article>
-        <article><img src="/assets/feature-arrears.jpg" alt="Dashboard used for account follow-up"><span>03</span><h3>Act on arrears</h3><p>Spot overdue accounts, warnings, restrictions, and restore actions quickly.</p></article>
-        <article><img src="/assets/feature-sync.jpg" alt="Smartphone for device sync"><span>04</span><h3>Sync device status</h3><p>Android agent routes and the Apple MDM bridge handle phone-side device controls.</p></article>
-      </div>
-    </section>
-
-    <section class="how-section setup-section" id="how">
-      <div class="setup-copy">
-        <p class="eyebrow">Setup</p>
-        <h2>Pilot-ready without extra ceremony.</h2>
-        <p>The local build keeps the operational notes short: admin access, payment routes, and device sync are ready for controlled testing.</p>
-      </div>
-      <div class="how-steps setup-list">
-        <article><span>01</span><div><strong>Local pilot data</strong><p>The backend stores contracts, payments, events, and audit history in the local JSON state file.</p></div></article>
-        <article><span>02</span><div><strong>Protected admin access</strong><p>The dashboard uses a session login, while device sync and payment callbacks use separate secrets.</p></div></article>
-        <article><span>03</span><div><strong>Device control testing</strong><p>The Android agent can pull policy, while supervised iPhones use Apple MDM command dispatch.</p></div></article>
-      </div>
-    </section>
-
-    <section class="final-cta" id="contact">
-      <p class="eyebrow">Ready to run the pilot?</p>
-      <h2>Open the dashboard and build your live book.</h2>
-      <a class="btn" href="/login">Get Started Now</a>
     </section>
   </main>
-  <footer class="landing-footer">
-    <div class="footer-brand">
-      <a class="landing-logo footer-logo" href="/"><span class="logo-symbol" aria-hidden="true"></span><span>KISMART</span></a>
-      <p>Installment phone management for contracts, collections, follow-up, and device sync.</p>
-      <a class="footer-cta" href="/login">Open Admin</a>
-    </div>
-    <div class="footer-columns">
+
+  <footer class="ks-footer">
+    <div class="ks-wrap ks-footer-grid">
       <div>
-        <strong>Platform</strong>
-        <a href="#platform">Workflow</a>
-        <a href="#features">Features</a>
-        <a href="#how">Setup</a>
+        <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+        <p>${shop}. Phone installment contracts, collections, and device policy.</p>
       </div>
       <div>
-        <strong>Operations</strong>
-        <span>Contracts</span>
-        <span>Payments</span>
-        <span>Device sync</span>
+        <strong>Product</strong>
+        <a href="#solutions">Solutions</a>
+        <a href="#features">Features</a>
+        <a href="#workflow">Workflow</a>
       </div>
       <div>
         <strong>Access</strong>
         <a href="/login">Admin login</a>
-        <span>${shop}</span>
+        <a href="/intake">Customer intake</a>
         <span>Version ${VERSION}</span>
       </div>
     </div>
-    <div class="footer-bottom">
-      <span>Local pilot backend</span>
-      <span>Session protected admin dashboard</span>
-      <span>Device sync uses a separate shared secret</span>
+    <div class="ks-wrap ks-footer-meta">
+      <span>Admin sessions protected</span>
+      <span>Device sync uses a separate secret</span>
     </div>
   </footer>
 </body>
@@ -1314,204 +1444,50 @@ function renderSaasLanding() {
 }
 
 function renderLanding() {
-  const shop = escapeHtml(SHOP_NAME);
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0f0f0f">
-  <title>${shop} Device Finance Platform</title>
-  <link rel="stylesheet" href="/assets/app.css">
-</head>
-<body class="landing-body">
-  <header class="landing-nav">
-    <a class="landing-logo" href="/">KISMART</a>
-    <nav class="landing-menu" aria-label="Landing">
-      <a href="#what">What It Does</a>
-      <a href="#how">How It Works</a>
-      <a href="#platform">Platform</a>
-    </nav>
-    <div class="landing-nav-actions">
-      <a class="landing-link" href="/login">Log in</a>
-      <a class="btn" href="/login">Get Started</a>
-    </div>
-  </header>
-  <main>
-    <section class="landing-hero">
-      <div class="hero-content">
-        <p class="eyebrow">Phone installment management</p>
-        <h1>Sell phones on installment with fewer loose ends.</h1>
-        <p class="landing-copy">KISMART helps a phone shop keep contracts, payments, due dates, warnings, and device status in one clear place.</p>
-        <div class="landing-actions">
-          <a class="btn" href="/login">Get Started</a>
-          <a class="btn secondary" href="#what">See what it does</a>
-        </div>
-      </div>
-      <div class="hero-media" aria-label="Dashboard preview">
-        <div class="dashboard-preview">
-          <div class="preview-head"><span>Today</span><strong>Command center</strong></div>
-          <div class="preview-stats">
-            <div><span>Collected</span><strong>KES 0</strong></div>
-            <div><span>Outstanding</span><strong>KES 0</strong></div>
-            <div><span>Needs action</span><strong>0 devices</strong></div>
-          </div>
-          <div class="preview-list">
-            <div><strong>Register a contract</strong><span>Customer and device</span><em>Ready</em></div>
-            <div><strong>Record payments</strong><span>Cash or mobile money</span><em>Ready</em></div>
-            <div><strong>Sync device status</strong><span>Agent or policy route</span><em>Ready</em></div>
-          </div>
-          <div class="preview-note"><span></span> Android agent online</div>
-        </div>
-      </div>
-    </section>
-    <section class="landing-next" aria-label="Quick summary">
-      <div><span>01</span><strong>Register financed phones</strong><small>Customer, device, IMEI, plan, branch.</small></div>
-      <div><span>02</span><strong>Track who has paid</strong><small>Deposits, mobile money, bank, and cash.</small></div>
-      <div><span>03</span><strong>Sync device status</strong><small>Policy, warnings, restore, and tamper events.</small></div>
-    </section>
-    <section class="landing-section" id="what">
-      <div class="section-copy">
-        <p class="eyebrow">What it does</p>
-        <h2>A practical system for daily shop work.</h2>
-        <p>No drama. Just the records and controls a phone-finance team needs to operate clearly.</p>
-      </div>
-      <div class="solution-grid">
-        <article><span>Contracts</span><h3>Know every financed device.</h3><p>Keep customer details, phone model, IMEI, deposit, repayment plan, and branch together.</p></article>
-        <article><span>Payments</span><h3>Post collections quickly.</h3><p>Record M-Pesa, Airtel Money, cash, bank, and deposit payments against the right contract.</p></article>
-        <article><span>Follow-up</span><h3>See arrears before they grow.</h3><p>Track balances, next due dates, overdue days, warnings, and accounts that need a call.</p></article>
-        <article><span>Devices</span><h3>Keep phone policy in sync.</h3><p>The Android agent can pull policy, acknowledge commands, and report tamper attempts.</p></article>
-      </div>
-    </section>
-    <section class="how-section" id="how">
-      <div>
-        <p class="eyebrow">How it works</p>
-        <h2>Simple enough for a shop counter. Structured enough for a growing book.</h2>
-      </div>
-      <div class="how-steps">
-        <article><span>1</span><strong>Create the contract</strong><p>Add the customer, phone, repayment plan, and device control profile.</p></article>
-        <article><span>2</span><strong>Record payments</strong><p>Post payments as they come in and let the account balance update.</p></article>
-        <article><span>3</span><strong>Act on arrears</strong><p>Send reminders, issue warnings, restrict when approved, or restore a paid account.</p></article>
-      </div>
-    </section>
-    <section class="platform-band" id="platform">
-      <div class="platform-copy">
-        <p class="eyebrow">Platform</p>
-        <h2>Local pilot ready.</h2>
-        <p>The admin dashboard is protected by login. Device sync uses a separate secret. The current MVP stores data in a local JSON state file.</p>
-        <a class="btn" href="/login">Open Admin</a>
-      </div>
-      <div class="platform-rows">
-        <div><strong>Admin login</strong><span>Session protected dashboard and browser APIs.</span></div>
-        <div><strong>Device agent</strong><span>Policy, sync, and tamper routes for Android testing.</span></div>
-        <div><strong>Payments</strong><span>M-Pesa and Airtel callback routes are modeled.</span></div>
-        <div><strong>Persistence</strong><span>JSON file for MVP, ready to replace with a database later.</span></div>
-      </div>
-    </section>
-    <section class="proof-section" id="proof" hidden>
-      <div class="proof-card">
-        <p>“The system gives a phone-finance team the thing they need most: a single view of who has paid, who needs follow-up, and which device commands are waiting.”</p>
-        <strong>KISMART Pilot Ops</strong>
-      </div>
-      <div class="proof-metrics">
-        <div><span>0</span><small>starter records</small></div>
-        <div><span>3</span><small>warning stages</small></div>
-        <div><span>8h</span><small>admin session</small></div>
-      </div>
-    </section>
-    <section class="final-cta">
-      <p class="eyebrow">Ready to run the pilot?</p>
-      <h2>Open the dashboard and build your live book.</h2>
-      <a class="btn" href="/login">Get Started</a>
-    </section>
-  </main>
-  <footer class="landing-footer">
-    <div>
-      <a class="landing-logo footer-logo" href="/">KISMART</a>
-      <p>Installment phone management for contracts, collections, follow-up, and device sync.</p>
-    </div>
-    <div class="footer-links">
-      <a href="#what">What It Does</a>
-      <a href="#how">How It Works</a>
-      <a href="#platform">Platform</a>
-      <a href="/login">Log in</a>
-    </div>
-    <div class="footer-meta">
-      <span>Local pilot backend</span>
-      <span>Version ${VERSION}</span>
-    </div>
-  </footer>
-</body>
-</html>`;
+  return renderSaasLanding();
 }
 
 function renderLogin(error = "") {
   const shop = escapeHtml(SHOP_NAME);
-  const errorMarkup = error ? `<div class="auth-error" role="alert">${escapeHtml(error)}</div>` : "";
+  const errorMarkup = error ? `<div class="ks-alert" role="alert">${escapeHtml(error)}</div>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0f0f0f">
-  <title>Admin Sign In - ${shop}</title>
+  <meta name="theme-color" content="#0d1f17">
+  <title>Admin sign in | ${shop}</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="auth-body">
-  <main class="auth-stage">
-    <header class="auth-nav">
-      <a class="auth-brand" href="/" aria-label="KISMART home"><span class="auth-mark" aria-hidden="true"></span><span>KISMART</span></a>
-      <nav class="auth-links" aria-label="Login navigation">
-        <a href="/#platform">Platform</a>
-        <a href="/#features">Features</a>
-        <a class="auth-demo" href="/#contact">Request Demo</a>
-      </nav>
-    </header>
-    <section class="auth-scene" aria-label="${shop} admin access">
-      <div class="auth-side auth-side-left" aria-hidden="true">
-        <div class="auth-squiggle"></div>
-        <div class="auth-cardlet"><span></span><span></span></div>
-        <div class="auth-dots"></div>
-        <div class="auth-cardlet graph"><span></span></div>
+<body class="ks-auth">
+  <div class="ks-auth-shell">
+    <aside class="ks-auth-brand">
+      <a class="ks-logo light" href="/"><span class="ks-mark light" aria-hidden="true"></span>KISMART</a>
+      <h1>Admin workspace for installment operations</h1>
+      <p>Manage contracts, payments, and device policy from one protected dashboard.</p>
+      <ul>
+        <li>Portfolio and collections</li>
+        <li>Device limit and restore</li>
+        <li>Audit and sync history</li>
+      </ul>
+    </aside>
+    <main class="ks-auth-main">
+      <div class="ks-auth-card">
+        <p class="ks-kicker">Admin sign in</p>
+        <h2>Welcome back</h2>
+        <p class="ks-auth-sub">Sign in to manage contracts, payments, and device operations.</p>
+        <form class="ks-form" method="post" action="/login">
+          ${errorMarkup}
+          <label><span>Email</span><input name="email" type="email" value="${escapeHtml(ADMIN_EMAIL)}" autocomplete="username" required autofocus></label>
+          <label><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="ks-btn ks-btn-primary ks-btn-block" type="submit">Sign in</button>
+        </form>
+        <p class="ks-auth-demo">Demo: ${escapeHtml(ADMIN_EMAIL)} / ${escapeHtml(ADMIN_PASSWORD)}</p>
+        <p class="ks-auth-meta">${shop} · v${VERSION}</p>
       </div>
-      <section class="auth-panel" aria-label="Admin sign in">
-      <form class="auth-form" method="post" action="/login">
-        <div>
-          <p class="eyebrow">Admin access</p>
-          <h1>Admin Login</h1>
-          <p>Enter your details to sign in to your account.</p>
-        </div>
-        ${errorMarkup}
-        <label><span>Email</span><input name="email" type="email" value="${escapeHtml(ADMIN_EMAIL)}" autocomplete="username" required autofocus></label>
-        <label><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
-        <a class="auth-help" href="/#contact">Having trouble signing in?</a>
-        <button class="btn auth-submit" type="submit">Sign in</button>
-        <div class="auth-divider"><span></span><strong>System access</strong><span></span></div>
-        <div class="auth-access" aria-label="Available modules">
-          <span>Contracts</span>
-          <span>Payments</span>
-          <span>Devices</span>
-        </div>
-        <p class="auth-hint">Demo access: ${escapeHtml(ADMIN_EMAIL)} / ${escapeHtml(ADMIN_PASSWORD)}</p>
-      </form>
-      <div class="auth-note">
-        <strong>${shop}</strong>
-        <span>Local pilot backend</span>
-      </div>
-      </section>
-      <div class="auth-side auth-side-right" aria-hidden="true">
-        <div class="auth-squiggle second"></div>
-        <div class="auth-device-card"><span></span><strong>Paid</strong></div>
-        <div class="auth-operator">
-          <span class="head"></span>
-          <span class="body"></span>
-          <span class="screen"></span>
-        </div>
-        <div class="auth-dots small"></div>
-      </div>
-    </section>
-    <footer class="auth-footer">Copyright KISMART ${new Date().getFullYear()} <span></span> Privacy Policy</footer>
-  </main>
+      <p class="ks-auth-foot"><a href="/">← Back to home</a></p>
+    </main>
+  </div>
 </body>
 </html>`;
 }
@@ -1520,43 +1496,48 @@ function renderCustomerIntake(status = "") {
   const shop = escapeHtml(SHOP_NAME);
   const message =
     status === "received"
-      ? `<div class="intake-success" role="status">Details received. The shop team can now complete the device and payment setup.</div>`
+      ? `<div class="ks-alert ok" role="status">Details received. The shop team can now complete the device and payment setup.</div>`
       : "";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#ffffff">
-  <title>${shop} Customer Intake</title>
+  <meta name="theme-color" content="#0d6b45">
+  <title>Customer intake | ${shop}</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="intake-body">
-  <main class="intake-stage">
-    <header class="auth-nav intake-nav">
-      <a class="auth-brand" href="/" aria-label="KISMART home"><span class="auth-mark" aria-hidden="true"></span><span>KISMART</span></a>
-      <nav class="auth-links" aria-label="Intake navigation">
-        <a href="/">Platform</a>
+<body class="ks-site ks-intake-page">
+  <header class="ks-topbar">
+    <div class="ks-wrap ks-topbar-inner">
+      <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+      <nav class="ks-nav" aria-label="Intake">
+        <a href="/">Home</a>
         <a href="/login">Admin</a>
       </nav>
-    </header>
-    <section class="intake-panel" aria-label="${shop} customer intake">
-      <div class="intake-copy">
-        <p class="eyebrow">Customer intake</p>
-        <h1>Start phone financing.</h1>
-        <p>Your details go to the shop team so they can finish the device, payment plan, and agreement setup.</p>
+      <div class="ks-top-actions">
+        <a class="ks-btn ks-btn-primary" href="/login">Sign in</a>
       </div>
-      <form class="intake-form" method="post" action="/intake">
+    </div>
+  </header>
+  <main class="ks-intake">
+    <div class="ks-wrap ks-intake-grid">
+      <div class="ks-intake-copy">
+        <p class="ks-kicker">Customer intake</p>
+        <h1>Phone financing application</h1>
+        <p>Submit your details. The shop team will complete the device, plan, and agreement.</p>
+      </div>
+      <form class="ks-form ks-intake-form" method="post" action="/intake">
         ${message}
-        <label>Full name<input name="customerName" type="text" autocomplete="name" required></label>
-        <label>Phone number<input name="phone" type="tel" autocomplete="tel" required></label>
-        <label>National ID<input name="nationalId" type="text" inputmode="numeric"></label>
-        <label>Address<input name="address" type="text" autocomplete="street-address"></label>
-        <label>Preferred branch<select name="branch"><option>Kisumu</option><option>Nairobi</option><option>Mobile sales</option></select></label>
-        <label class="form-wide">Notes<textarea name="notes" rows="3"></textarea></label>
-        <button class="btn" type="submit">Submit Details</button>
+        <label><span>Full name</span><input name="customerName" type="text" autocomplete="name" required></label>
+        <label><span>Phone number</span><input name="phone" type="tel" autocomplete="tel" required></label>
+        <label><span>National ID</span><input name="nationalId" type="text" inputmode="numeric"></label>
+        <label><span>Address</span><input name="address" type="text" autocomplete="street-address"></label>
+        <label><span>Preferred branch</span><select name="branch"><option>Kisumu</option><option>Nairobi</option><option>Mobile sales</option></select></label>
+        <label class="ks-full"><span>Notes</span><textarea name="notes" rows="3"></textarea></label>
+        <button class="ks-btn ks-btn-primary ks-btn-block" type="submit">Submit application</button>
       </form>
-    </section>
+    </div>
   </main>
 </body>
 </html>`;
@@ -1569,37 +1550,37 @@ function renderDashboard() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0f0f0f">
-  <title>${shop} Installment Command Center</title>
+  <meta name="theme-color" content="#0d1f17">
+  <title>${shop} | Admin</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
+<body class="ks-dash">
   <div class="shell">
     <aside>
       <div class="brand">
         <div class="brand-lockup"><span class="brand-logo" aria-hidden="true"></span><div class="brand-word">KISMART</div></div>
-        <span>${shop} financing operations</span>
+        <span>${shop}</span>
       </div>
       <nav aria-label="Primary">
-        ${navItem("overview", "Command Center", "overview", true)}
-        ${navItem("contracts", "Portfolio", "contracts")}
-        ${navItem("register", "Onboarding", "register")}
-        ${navItem("inventory", "Device Stock", "inventory")}
-        ${navItem("payments", "Collections", "payments")}
-        ${navItem("devices", "Device Operations", "devices")}
-        ${navItem("operations", "Ecosystem", "operations")}
-        ${navItem("audit", "Audit Trail", "audit")}
+        ${navItem("overview", "Overview", "overview", true)}
+        ${navItem("contracts", "Contracts", "contracts")}
+        ${navItem("register", "Register", "register")}
+        ${navItem("inventory", "Inventory", "inventory")}
+        ${navItem("payments", "Payments", "payments")}
+        ${navItem("devices", "Devices", "devices")}
+        ${navItem("operations", "Operations", "operations")}
+        ${navItem("audit", "Audit", "audit")}
       </nav>
       <div class="side-status">
         <span class="pulse"></span>
-        <div><strong>Backend online</strong><small>Version ${VERSION}</small></div>
+        <div><strong>System online</strong><small>v${VERSION}</small></div>
       </div>
     </aside>
     <main>
-      <header>
-        <div><p class="eyebrow" id="eyebrow">Portfolio command</p><h1 id="title">Command Center</h1></div>
+      <header class="dash-header">
+        <div><p class="eyebrow" id="eyebrow">Operations</p><h1 id="title">Overview</h1></div>
         <div class="controls">
-          <input id="search" type="search" placeholder="Search name, phone, IMEI, ref">
+          <input id="search" type="search" placeholder="Search name, phone, IMEI">
           <select id="role" aria-label="Current role"><option>Admin</option><option>Branch Manager</option><option>Cashier</option><option>Support Agent</option></select>
           <button class="btn secondary" id="refresh" type="button">Refresh</button>
           <form class="logout-form" method="post" action="/logout"><button class="btn signout-btn" type="submit">Sign out</button></form>
@@ -2905,49 +2886,722 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   color: #666666;
 }
 
-/* User supplied phone hero image. */
-.saas-hero {
-  min-height: 744px;
-  color: #ffffff;
-  background: #111111 url("/assets/landing-hero-bg.jpg") center center / cover no-repeat !important;
+
+
+/* ─── KISMART professional brand system ─── */
+.ks-site, .ks-auth, .ks-dash {
+  margin: 0;
+  color: #14201a;
+  background: #f4f7f5;
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-.saas-hero::before {
+.ks-wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+.ks-kicker {
+  margin: 0 0 10px;
+  color: #0d6b45;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.ks-kicker.light { color: #9fd4b8; }
+.ks-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #14201a;
+  font-size: 18px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.ks-logo.light { color: #ffffff; }
+.ks-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #0d6b45;
+  box-shadow: inset 0 0 0 2px #0d6b45;
+  position: relative;
+}
+.ks-mark::after {
   content: "";
   position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: block !important;
-  background: rgba(5, 5, 5, .44) !important;
+  inset: 7px;
+  border: 2px solid #ffffff;
+  border-radius: 2px;
 }
-.saas-hero h1,
-.saas-hero h1 span,
-.partner-strip p,
-.partner-strip span {
-  color: #ffffff;
+.ks-mark.light { background: #159a5f; }
+.ks-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
 }
-.saas-hero .landing-copy {
-  color: rgba(255, 255, 255, .8);
+.ks-btn-primary { color: #ffffff; background: #0d6b45; border-color: #0d6b45; }
+.ks-btn-primary:hover { background: #0b5a3a; }
+.ks-btn-ghost { color: #14201a; background: #ffffff; border-color: #c9d6ce; }
+.ks-btn-ghost:hover { border-color: #0d6b45; }
+.ks-btn-on-dark { color: #0d1f17; background: #ffffff; border-color: #ffffff; }
+.ks-btn-outline-light { color: #ffffff; background: transparent; border-color: rgba(255,255,255,.45); }
+.ks-btn-block { width: 100%; }
+.ks-link { color: #2f4038; font-size: 14px; font-weight: 600; text-decoration: none; }
+.ks-link:hover { color: #0d6b45; }
+
+/* Top bar */
+.ks-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: #ffffff;
+  border-bottom: 1px solid #d5e0d9;
 }
-.saas-hero .eyebrow {
-  color: #22c55e;
+.ks-topbar-inner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 20px;
+  min-height: 68px;
 }
-.saas-hero .hero-content,
-.saas-hero .partner-strip {
-  position: relative;
-  z-index: 1;
+.ks-nav { display: flex; justify-content: center; gap: 22px; }
+.ks-nav a { color: #42574c; font-size: 14px; font-weight: 600; text-decoration: none; }
+.ks-nav a:hover { color: #0d6b45; }
+.ks-top-actions { display: flex; align-items: center; gap: 12px; }
+
+/* Hero */
+.ks-hero {
+  background: #ffffff;
+  border-bottom: 1px solid #d5e0d9;
 }
-.saas-hero .landing-actions .btn.secondary {
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, .5);
-  background: rgba(17, 17, 17, .72) !important;
+.ks-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr);
+  gap: 40px;
+  align-items: center;
+  padding: 56px 0 52px;
+}
+.ks-hero h1 {
+  margin: 0;
+  max-width: 560px;
+  color: #14201a;
+  font-size: clamp(32px, 4.2vw, 44px);
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+.ks-lead {
+  margin: 16px 0 0;
+  max-width: 520px;
+  color: #5a6b62;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.ks-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.ks-hero-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 28px 0 0;
+}
+.ks-hero-facts div {
+  padding: 12px 14px;
+  border: 1px solid #d5e0d9;
+  border-radius: 10px;
+  background: #f4f7f5;
+}
+.ks-hero-facts dt {
+  color: #5a6b62;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ks-hero-facts dd {
+  margin: 6px 0 0;
+  color: #14201a;
+  font-size: 13px;
+  font-weight: 650;
+}
+.ks-hero-card {
+  padding: 18px;
+  border: 1px solid #d5e0d9;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(13, 31, 23, .06);
+}
+.ks-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e4ece7;
+}
+.ks-card-head span { color: #0d6b45; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.ks-card-head strong { color: #14201a; font-size: 14px; }
+.ks-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+}
+.ks-stat {
+  padding: 12px;
+  border: 1px solid #e4ece7;
+  border-radius: 10px;
+  background: #f8fbf9;
+}
+.ks-stat span { display: block; color: #5a6b62; font-size: 11px; font-weight: 600; }
+.ks-stat strong { display: block; margin-top: 8px; color: #14201a; font-size: 18px; }
+.ks-task-list { list-style: none; margin: 0; padding: 0; border: 1px solid #e4ece7; border-radius: 10px; overflow: hidden; }
+.ks-task-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid #eef3f0;
+}
+.ks-task-list li:first-child { border-top: 0; }
+.ks-task-list strong { color: #14201a; font-size: 13px; }
+.ks-task-list span { color: #5a6b62; font-size: 12px; }
+.ks-task-list em {
+  min-width: 54px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e7f3ed;
+  color: #0d6b45;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  text-align: center;
 }
 
-@media (max-width: 760px) {
-  .saas-hero {
-    min-height: 690px;
-    background-position: center bottom !important;
-  }
+/* Band */
+.ks-band { background: #eef3f0; border-bottom: 1px solid #d5e0d9; }
+.ks-band-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+  padding: 18px 0;
 }
+.ks-band-inner > p {
+  margin: 0;
+  color: #5a6b62;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.ks-band-inner ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ks-band-inner li {
+  padding: 7px 12px;
+  border: 1px solid #d5e0d9;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2f4038;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Sections */
+.ks-section { padding: 64px 0; background: #ffffff; }
+.ks-section-alt { background: #f4f7f5; border-top: 1px solid #d5e0d9; border-bottom: 1px solid #d5e0d9; }
+.ks-section-head { max-width: 640px; margin-bottom: 28px; }
+.ks-section-head.tight { margin-bottom: 0; }
+.ks-section-head h2 {
+  margin: 0 0 10px;
+  color: #14201a;
+  font-size: clamp(24px, 3vw, 32px);
+  line-height: 1.2;
+  font-weight: 750;
+  letter-spacing: -.015em;
+}
+.ks-section-head p:not(.ks-kicker) { margin: 0; color: #5a6b62; font-size: 15px; line-height: 1.55; }
+.ks-quad, .ks-features, .ks-security {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.ks-features, .ks-security { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ks-quad article, .ks-features article, .ks-security article {
+  padding: 20px;
+  border: 1px solid #d5e0d9;
+  border-radius: 12px;
+  background: #ffffff;
+}
+.ks-features article {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ks-features article img {
+  display: block;
+  width: 100%;
+  height: 168px;
+  object-fit: cover;
+  border-bottom: 1px solid #d5e0d9;
+  background: #eef3f0;
+}
+.ks-feature-body { padding: 18px 20px 20px; }
+.ks-section-alt .ks-quad article,
+.ks-section-alt .ks-features article,
+.ks-section-alt .ks-security article { background: #ffffff; }
+.ks-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #e7f3ed;
+  color: #0d6b45;
+  font-size: 12px;
+  font-weight: 750;
+}
+.ks-quad h3, .ks-features h3, .ks-security h3 {
+  margin: 14px 0 8px;
+  color: #14201a;
+  font-size: 16px;
+  font-weight: 700;
+}
+.ks-quad p, .ks-features p, .ks-security p {
+  margin: 0;
+  color: #5a6b62;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ks-tag {
+  margin: 0 0 8px !important;
+  color: #0d6b45 !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.ks-split {
+  display: grid;
+  grid-template-columns: minmax(240px, .85fr) minmax(0, 1.15fr);
+  gap: 36px;
+  align-items: start;
+}
+.ks-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: step; }
+.ks-steps li {
+  position: relative;
+  padding: 18px 18px 18px 62px;
+  border: 1px solid #d5e0d9;
+  border-radius: 12px;
+  background: #ffffff;
+  counter-increment: step;
+}
+.ks-steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 16px;
+  top: 18px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #0d6b45;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 750;
+}
+.ks-steps strong { display: block; color: #14201a; font-size: 15px; }
+.ks-steps p { margin: 6px 0 0; color: #5a6b62; font-size: 14px; line-height: 1.5; }
+
+/* CTA + footer */
+.ks-cta {
+  background: #0d1f17;
+  color: #ffffff;
+  padding: 56px 0;
+}
+.ks-cta-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+.ks-cta h2 {
+  margin: 0 0 8px;
+  max-width: 520px;
+  color: #ffffff;
+  font-size: clamp(24px, 3vw, 32px);
+  line-height: 1.2;
+}
+.ks-cta p:not(.ks-kicker) { margin: 0; max-width: 520px; color: #b7c9be; font-size: 15px; line-height: 1.5; }
+.ks-footer {
+  background: #ffffff;
+  border-top: 1px solid #d5e0d9;
+  padding: 36px 0 24px;
+}
+.ks-footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr .8fr;
+  gap: 28px;
+}
+.ks-footer p { margin: 12px 0 0; max-width: 340px; color: #5a6b62; font-size: 14px; line-height: 1.5; }
+.ks-footer strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #14201a;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.ks-footer a, .ks-footer span {
+  display: block;
+  margin-top: 8px;
+  color: #5a6b62;
+  font-size: 14px;
+  text-decoration: none;
+}
+.ks-footer a:hover { color: #0d6b45; }
+.ks-footer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e4ece7;
+  color: #6b7c73;
+  font-size: 12px;
+}
+
+/* Auth */
+.ks-auth { min-height: 100vh; background: #f4f7f5; }
+.ks-auth-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(280px, .95fr) minmax(340px, 1.05fr);
+}
+.ks-auth-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px clamp(28px, 5vw, 64px);
+  background: #0d1f17;
+  color: #ffffff;
+}
+.ks-auth-brand h1 {
+  margin: 18px 0 0;
+  max-width: 380px;
+  font-size: clamp(28px, 3.5vw, 36px);
+  line-height: 1.15;
+  font-weight: 750;
+}
+.ks-auth-brand > p { margin: 0; max-width: 360px; color: #b7c9be; font-size: 15px; line-height: 1.55; }
+.ks-auth-brand ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.ks-auth-brand li {
+  position: relative;
+  padding-left: 18px;
+  color: #d7e6dd;
+  font-size: 14px;
+}
+.ks-auth-brand li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #159a5f;
+}
+.ks-auth-main {
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+}
+.ks-auth-card {
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid #d5e0d9;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(13, 31, 23, .05);
+}
+.ks-auth-card h2 { margin: 0 0 6px; font-size: 24px; color: #14201a; }
+.ks-auth-sub { margin: 0 0 18px; color: #5a6b62; font-size: 14px; line-height: 1.5; }
+.ks-form { display: grid; gap: 12px; }
+.ks-form label { display: grid; gap: 6px; color: #2f4038; font-size: 12px; font-weight: 700; }
+.ks-form input, .ks-form select, .ks-form textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #c9d6ce;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #14201a;
+  font: inherit;
+  outline: none;
+}
+.ks-form textarea { min-height: 96px; resize: vertical; }
+.ks-form input:focus, .ks-form select:focus, .ks-form textarea:focus {
+  border-color: #0d6b45;
+  box-shadow: 0 0 0 3px rgba(13, 107, 69, .12);
+}
+.ks-alert {
+  padding: 11px 12px;
+  border: 1px solid #9b2c2c;
+  border-radius: 8px;
+  background: #fdecec;
+  color: #7a1f1f;
+  font-size: 13px;
+}
+.ks-alert.ok {
+  border-color: #0d6b45;
+  background: #e7f3ed;
+  color: #0b5a3a;
+}
+.ks-auth-demo, .ks-auth-meta { margin: 14px 0 0; color: #6b7c73; font-size: 12px; line-height: 1.45; }
+.ks-auth-foot { margin: 16px 0 0; text-align: center; }
+.ks-auth-foot a { color: #5a6b62; font-size: 13px; text-decoration: none; }
+.ks-auth-foot a:hover { color: #0d6b45; }
+
+/* Intake */
+.ks-intake { padding: 48px 0 64px; }
+.ks-intake-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, .9fr) minmax(320px, 440px);
+  gap: 40px;
+  align-items: start;
+}
+.ks-intake-copy h1 {
+  margin: 0 0 12px;
+  color: #14201a;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.15;
+}
+.ks-intake-copy p:not(.ks-kicker) { margin: 0; color: #5a6b62; font-size: 15px; line-height: 1.55; max-width: 420px; }
+.ks-intake-form {
+  padding: 22px;
+  border: 1px solid #d5e0d9;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(13, 31, 23, .05);
+}
+.ks-full { grid-column: 1 / -1; }
+
+/* Dashboard overrides (shell still uses existing class names from app.js) */
+.ks-dash { background: #f4f7f5; color: #14201a; font-family: "Segoe UI", system-ui, Arial, sans-serif; }
+.ks-dash .shell { min-height: 100vh; }
+.ks-dash aside {
+  background: #0d1f17 !important;
+  color: #ffffff !important;
+  border-right: 1px solid #0a1711 !important;
+}
+.ks-dash .brand { border-bottom-color: rgba(255,255,255,.1) !important; }
+.ks-dash .brand-word { color: #ffffff !important; font-weight: 750 !important; }
+.ks-dash .brand span { color: #a8c0b3 !important; }
+.ks-dash .brand-logo {
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: #0d6b45 !important;
+}
+.ks-dash .brand-logo::before {
+  background: #ffffff !important;
+  box-shadow: 8px 0 rgba(255,255,255,.55), 16px 0 #ffffff, 0 8px rgba(255,255,255,.55), 8px 8px #ffffff, 16px 8px rgba(255,255,255,.55), 0 16px #ffffff, 8px 16px rgba(255,255,255,.55), 16px 16px #ffffff !important;
+}
+.ks-dash nav button {
+  color: #c5d6cc !important;
+  border-radius: 8px !important;
+  font-weight: 550 !important;
+}
+.ks-dash nav button.active,
+.ks-dash nav button:hover {
+  color: #ffffff !important;
+  background: rgba(13, 107, 69, .28) !important;
+}
+.ks-dash nav button.active::before,
+.ks-dash nav button:hover::before { background: #159a5f !important; }
+.ks-dash nav button.active .nav-icon,
+.ks-dash nav button:hover .nav-icon { color: #7dcea6 !important; }
+.ks-dash .side-status { border-top-color: rgba(255,255,255,.1) !important; }
+.ks-dash .side-status strong { color: #ffffff !important; }
+.ks-dash .side-status small { color: #a8c0b3 !important; }
+.ks-dash .pulse { background: #159a5f !important; box-shadow: 0 0 0 4px rgba(21, 154, 95, .2) !important; }
+.ks-dash main { background: #f4f7f5 !important; padding: 22px 26px 36px !important; }
+.ks-dash .dash-header {
+  border-bottom: 1px solid #d5e0d9 !important;
+  margin-bottom: 18px !important;
+  padding-bottom: 14px !important;
+}
+.ks-dash h1 { color: #14201a !important; font-weight: 750 !important; }
+.ks-dash .eyebrow { color: #0d6b45 !important; font-weight: 700 !important; letter-spacing: .05em !important; }
+.ks-dash .controls input,
+.ks-dash .controls select {
+  border: 1px solid #c9d6ce !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: #14201a !important;
+  box-shadow: none !important;
+}
+.ks-dash .controls input:focus,
+.ks-dash .controls select:focus {
+  border-color: #0d6b45 !important;
+  box-shadow: 0 0 0 3px rgba(13, 107, 69, .12) !important;
+}
+.ks-dash .btn {
+  border-radius: 8px !important;
+  border: 1px solid #0d6b45 !important;
+  background: #0d6b45 !important;
+  color: #ffffff !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+.ks-dash .btn.secondary {
+  background: #ffffff !important;
+  color: #14201a !important;
+  border-color: #c9d6ce !important;
+}
+.ks-dash .btn.signout-btn {
+  background: #ffffff !important;
+  color: #9b2c2c !important;
+  border-color: #e8b4b4 !important;
+}
+.ks-dash .panel,
+.ks-dash .metric,
+.ks-dash .chart-panel {
+  border: 1px solid #d5e0d9 !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: 0 6px 18px rgba(13, 31, 23, .04) !important;
+}
+.ks-dash .health-panel {
+  background: #0d1f17 !important;
+  border-color: #0d1f17 !important;
+  color: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+.ks-dash .health-copy .eyebrow,
+.ks-dash .health-copy p,
+.ks-dash .health-strip span { color: #a8c0b3 !important; }
+.ks-dash .health-copy strong,
+.ks-dash .health-strip strong { color: #ffffff !important; }
+.ks-dash .health-score {
+  border: 1px solid rgba(21, 154, 95, .45) !important;
+  color: #7dcea6 !important;
+  border-radius: 10px !important;
+}
+.ks-dash .health-strip { border-top-color: rgba(255,255,255,.1) !important; }
+.ks-dash tbody tr:hover td { background: #f0f8f4 !important; }
+.ks-dash th { background: #eef3f0 !important; color: #5a6b62 !important; }
+.ks-dash .badge {
+  border-radius: 999px !important;
+  font-weight: 650 !important;
+}
+.ks-dash .badge.Active,
+.ks-dash .badge.Pending,
+.ks-dash .badge.Live {
+  color: #14201a !important;
+  background: #eef3f0 !important;
+  border: 1px solid #d5e0d9 !important;
+}
+.ks-dash .badge.Completed,
+.ks-dash .badge.Synced,
+.ks-dash .badge.Ready,
+.ks-dash .badge.Online {
+  color: #0b5a3a !important;
+  background: #e7f3ed !important;
+  border: 1px solid #b7dfc9 !important;
+}
+.ks-dash .badge.Overdue,
+.ks-dash .badge.Attention {
+  color: #0b5a3a !important;
+  background: #e7f3ed !important;
+  border: 1px solid #0d6b45 !important;
+}
+.ks-dash .badge.Restricted,
+.ks-dash .badge.Failed,
+.ks-dash .badge.Blocked,
+.ks-dash .badge.Offline {
+  color: #ffffff !important;
+  background: #14201a !important;
+  border: 1px solid #14201a !important;
+}
+.ks-dash .tiny {
+  border-radius: 7px !important;
+  border-color: #c9d6ce !important;
+  background: #ffffff !important;
+  color: #14201a !important;
+}
+.ks-dash .tiny.success,
+.ks-dash .tiny[data-action="remind"],
+.ks-dash .tiny[data-action="warn"] {
+  background: #0d6b45 !important;
+  border-color: #0d6b45 !important;
+  color: #ffffff !important;
+}
+.ks-dash .tiny.danger,
+.ks-dash .tiny[data-action="restrict"] {
+  background: #14201a !important;
+  border-color: #14201a !important;
+  color: #ffffff !important;
+}
+.ks-dash .tiny.delete {
+  background: #ffffff !important;
+  border-color: #e8b4b4 !important;
+  color: #9b2c2c !important;
+}
+.ks-dash .metric.green strong,
+.ks-dash .metric.accent strong,
+.ks-dash .metric.blue strong { color: #0d6b45 !important; }
+.ks-dash .metric.red strong { color: #9b2c2c !important; }
+.ks-dash .metric::after { background: #0d6b45 !important; opacity: .55 !important; }
+.ks-dash .bar-fill,
+.ks-dash .pipeline-fill { background: #0d6b45 !important; }
+.ks-dash .chart-blue,
+.ks-dash .chart-teal,
+.ks-dash .chart-accent,
+.ks-dash .chart-green { fill: #0d6b45 !important; stroke: #0d6b45 !important; }
+.ks-dash .chart-red { fill: #9b2c2c !important; stroke: #9b2c2c !important; }
+.ks-dash .toast { border-radius: 10px !important; background: #0d1f17 !important; }
+
+@media (max-width: 960px) {
+  .ks-hero-grid,
+  .ks-split,
+  .ks-auth-shell,
+  .ks-intake-grid,
+  .ks-cta-inner,
+  .ks-footer-grid { grid-template-columns: 1fr !important; }
+  .ks-quad { grid-template-columns: 1fr 1fr !important; }
+  .ks-auth-brand { min-height: auto; padding-top: 36px; padding-bottom: 36px; }
+}
+@media (max-width: 720px) {
+  .ks-nav { display: none !important; }
+  .ks-topbar-inner { grid-template-columns: auto auto !important; }
+  .ks-hero-facts,
+  .ks-stat-row,
+  .ks-quad,
+  .ks-features,
+  .ks-security { grid-template-columns: 1fr !important; }
+  .ks-task-list li { grid-template-columns: 1fr auto !important; }
+  .ks-task-list span { display: none; }
+  .ks-wrap { width: min(100% - 28px, 1120px); }
+}
+
 `;
 }
 
@@ -3439,8 +4093,8 @@ function contractsTable(contracts, controls) {
   if (!contracts.length) return '<div class="empty">No matching contracts.</div>';
   return '<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Device</th><th>Plan</th><th>Paid</th><th>Balance</th><th>Arrears</th><th>Next due</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + contracts.map(function (c) {
     const deleteButton = '<button class="tiny delete" data-action="delete-contract" data-id="' + e(c.id) + '" data-confirm="' + e("Delete contract " + c.id + " for " + c.customer.name + "? This cannot be undone.") + '" type="button">Delete</button>';
-    const bindingStatus = c.device.binding ? "Identity locked" : "Identity not enrolled";
-    const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity binding for " + c.customer.name + "? Only do this after checking the physical phone.") + '" type="button">Reset ID</button>';
+    const bindingStatus = c.device.binding ? "Identity locked (same phone auto-recovers)" : "Identity not enrolled";
+    const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
     const controlButtons = controls
       ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button">Limit Use</button><button class="tiny danger" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button">Lock Phone</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
       : '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
@@ -3572,7 +4226,8 @@ function ecosystemSummary() {
 function deviceAgentGuide() {
   return '<div class="queue">' +
     '<div class="readiness-row"><strong>Android policy pull</strong><p>GET /api/devices/:imei/policy returns balance, arrears, next due date, and the current restriction level for the Android agent.</p>' + badge("Ready") + '</div>' +
-    '<div class="readiness-row"><strong>Android identity binding</strong><p>The first trusted sync binds the IMEI to Android ID, app install ID, device fingerprint, and binding token. Later mismatches are blocked and logged.</p>' + badge("Ready") + '</div>' +
+    '<div class="readiness-row"><strong>Android identity binding</strong><p>First trusted sync locks the contract to that handset Android ID and issues a binding token. Reinstalls and app-data wipes on the same phone are re-accepted automatically using Android ID; only a different physical handset needs Reset ID.</p>' + badge("Ready") + '</div>' +
+    '<div class="readiness-row"><strong>Remote device control</strong><p>Phones sync to the public control URL (' + e(PUBLIC_BASE_URL) + ') from any network. Host this backend on that URL (or set KISMART_PUBLIC_BASE_URL) and use Firestore so laptop and cloud share the same contracts.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Apple MDM bridge</strong><p>iOS contracts queue Apple MDM commands for supervised iPhones. Use Dispatch MDM or configure KISMART_IOS_MDM_PROVIDER=webhook for a real MDM connector.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Tamper reporting</strong><p>Android posts tamper events through the agent; iOS tamper and restriction depth come from the MDM provider.</p>' + badge("Ready") + '</div>' +
     '</div>';
@@ -5088,6 +5743,8 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
   return {
     service: SHOP_NAME,
     serverTime: nowIso(),
+    // Canonical public URL so phones keep syncing after they leave the shop LAN.
+    controlEndpoint: PUBLIC_BASE_URL,
     contractId: contract.id,
     customer: contract.customer.name,
     imei: contract.device.imei,
@@ -5239,12 +5896,14 @@ function verifyDeviceIdentity(
     return { allowed: true, changes, bindingToken };
   }
 
-  if (!isSameDeviceIdentity(contract.device.binding, identity)) {
+  const match = evaluateDeviceIdentityMatch(contract.device.binding, identity);
+  if (!match.matched) {
     contract.device.binding.lastMismatchAt = now;
     contract.device.binding.mismatchCount = numberFrom(contract.device.binding.mismatchCount) + 1;
     const detail = "This IMEI is already bound to another phone identity. Admin must verify the handset and reset the device binding before this phone can sync.";
     const event = recordDeviceEvent(state, contract, "Tamper alert", "Attention", "Device identity mismatch blocked", {
       source,
+      matchReason: match.reason,
       expectedInstallId: shortIdentity(contract.device.binding.installId),
       incomingInstallId: shortIdentity(identity.installId),
       expectedAndroidId: shortIdentity(contract.device.binding.androidId),
@@ -5270,42 +5929,93 @@ function verifyDeviceIdentity(
     return { allowed: false, detail, changes, bindingToken: "" };
   }
 
+  // Same physical handset: refresh mutable fields and re-issue token after reinstall/data wipe.
   let bindingToken = "";
-  if (!contract.device.binding.tokenHash) {
+  if (match.needsTokenReissue || !contract.device.binding.tokenHash) {
     bindingToken = createDeviceBindingToken();
     contract.device.binding.tokenHash = deviceBindingTokenHash(bindingToken);
     contract.device.binding.tokenIssuedAt = now;
   }
+  contract.device.binding.installId = identity.installId || contract.device.binding.installId;
+  contract.device.binding.androidId = identity.androidId || contract.device.binding.androidId;
+  contract.device.binding.fingerprint = identity.fingerprint || contract.device.binding.fingerprint;
   contract.device.binding.lastSeenAt = now;
   contract.device.binding.manufacturer = identity.manufacturer || contract.device.binding.manufacturer;
   contract.device.binding.brand = identity.brand || contract.device.binding.brand;
   contract.device.binding.model = identity.model || contract.device.binding.model;
   contract.device.binding.sdk = identity.sdk || contract.device.binding.sdk;
+
+  if (match.reason === "android-id-recovery" || match.reason === "legacy-unbound-token") {
+    const event = recordDeviceEvent(state, contract, "Identity verified", "Online", "Device identity recovered on the same handset without admin reset", {
+      source,
+      matchReason: match.reason,
+      androidId: shortIdentity(identity.androidId),
+      model: identity.model,
+    });
+    changes.deviceEventIds = [event.id];
+  }
+
   return { allowed: true, changes, bindingToken };
 }
 
-function isSameDeviceIdentity(binding: DeviceBinding, identity: DeviceIdentityInput) {
-  const installMatch = Boolean(binding.installId && identity.installId && binding.installId === identity.installId);
-  const androidBuildMatch = Boolean(
-    binding.androidId &&
-    identity.androidId &&
-    binding.fingerprint &&
-    identity.fingerprint &&
-    binding.androidId === identity.androidId &&
-    binding.fingerprint === identity.fingerprint
-  );
-  const signalMatch = installMatch || androidBuildMatch;
-  if (!signalMatch) return false;
-  if (!binding.tokenHash) return true;
-  return safeEqual(binding.tokenHash, deviceBindingTokenHash(identity.bindingToken));
+/**
+ * Durable same-phone matching:
+ * - Valid binding token always wins (agent reconnected with stored secret).
+ * - Same Android ID wins even if app data / binding token was wiped (reinstall).
+ * - Fingerprint/installId alone are not enough (they can be shared or IMEI-derived).
+ * Reset ID is only required when a different physical handset uses the same IMEI.
+ */
+function evaluateDeviceIdentityMatch(binding: DeviceBinding, identity: DeviceIdentityInput): {
+  matched: boolean;
+  reason: string;
+  needsTokenReissue: boolean;
+} {
+  const tokenOk = deviceBindingTokenMatches(binding, identity.bindingToken);
+  if (tokenOk) {
+    return { matched: true, reason: "binding-token", needsTokenReissue: false };
+  }
+
+  const androidIdMatch = Boolean(binding.androidId && identity.androidId && binding.androidId === identity.androidId);
+  if (androidIdMatch) {
+    // Token missing/wrong after reinstall or SharedPreferences wipe — same handset.
+    return { matched: true, reason: "android-id-recovery", needsTokenReissue: true };
+  }
+
+  // Backward-compatible path for older agents that had no token yet but still present both signals.
+  if (!binding.tokenHash) {
+    const installMatch = Boolean(binding.installId && identity.installId && binding.installId === identity.installId);
+    const fingerprintMatch = Boolean(binding.fingerprint && identity.fingerprint && binding.fingerprint === identity.fingerprint);
+    if (installMatch || fingerprintMatch) {
+      return { matched: true, reason: "legacy-unbound-token", needsTokenReissue: true };
+    }
+  }
+
+  return { matched: false, reason: "mismatch", needsTokenReissue: false };
 }
 
 function createDeviceBindingToken() {
   return randomBytes(32).toString("base64url");
 }
 
-function deviceBindingTokenHash(token: string) {
-  return createHmac("sha256", SESSION_SECRET).update(clean(token)).digest("base64url");
+function deviceBindingTokenHash(token: string, secret = BINDING_TOKEN_SECRET) {
+  return createHmac("sha256", secret).update(clean(token)).digest("base64url");
+}
+
+function deviceBindingTokenMatches(binding: DeviceBinding, token: string) {
+  if (!binding.tokenHash || !token) return false;
+  if (safeEqual(binding.tokenHash, deviceBindingTokenHash(token, BINDING_TOKEN_SECRET))) return true;
+  // Accept legacy hashes signed with the admin session secret so existing phones keep working.
+  if (BINDING_TOKEN_SECRET !== SESSION_SECRET) {
+    if (safeEqual(binding.tokenHash, deviceBindingTokenHash(token, SESSION_SECRET))) return true;
+  }
+  return false;
+}
+
+function resolvePublicBaseUrl(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "https://kismartsystem.vercel.app";
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return withScheme.replace(/\/$/, "");
 }
 
 function mergeRuntimeSaveChanges(...items: RuntimeSaveChanges[]): RuntimeSaveChanges {

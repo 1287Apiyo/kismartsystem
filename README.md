@@ -203,10 +203,31 @@ The payment package list is kept for normal payment launching outside strict KIS
 - `GET /api/reports/summary` - portfolio metrics
 - `GET /api/export/contracts.csv` - contract export
 
+## Remote phone control (any network)
+
+Phones must reach a **public HTTPS** control URL, not a laptop LAN IP. Configure:
+
+```text
+KISMART_PUBLIC_BASE_URL=https://kismartsystem.vercel.app
+KISMART_STORAGE=firestore
+KISMART_DEVICE_SYNC_SECRET=4321
+```
+
+Deploy this backend to that public host (Vercel is already wired via `api/index.js` + `vercel.json`). Admin dashboard and phones must share the same Firestore data so lock/restore commands issued in the dashboard are seen by phones on mobile data or other Wi-Fi.
+
+Health check:
+
+```text
+GET /api/health
+```
+
+Device identity: the first trusted sync binds the contract to the handset **Android ID**. Reinstalls on the same phone re-bind automatically. **Reset ID** is only for a different physical handset (or factory reset that changes Android ID).
+
 ## Production Notes
 
 - Set `KISMART_CALLBACK_SECRET` before exposing mobile-money callback URLs publicly.
 - Set `KISMART_DEVICE_SYNC_SECRET` before exposing device policy, sync, or tamper routes publicly.
+- Set `KISMART_PUBLIC_BASE_URL` to the HTTPS origin phones should use from any network.
 - Set `KISMART_ADMIN_PASSWORD` and `KISMART_SESSION_SECRET` before exposing the admin dashboard.
 - Use Firestore security controls and keep service-account keys out of source control.
 - Put the server behind HTTPS with a reverse proxy or cloud platform.
