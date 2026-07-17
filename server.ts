@@ -185,9 +185,16 @@ interface AppState {
     time: string;
     contractId: string;
     provider: string;
+    /** For STK: CheckoutRequestID (primary) or M-Pesa receipt after success. */
     reference: string;
     status: "Pending" | "Synced" | "Failed";
     message: string;
+    /** Daraja MerchantRequestID when STK is initiated. */
+    merchantRequestId?: string;
+    /** Customer MSISDN in 2547… form when STK is initiated. */
+    phoneNumber?: string;
+    amount?: number;
+    accountReference?: string;
   }[];
   notifications: NotificationRecord[];
   intakes: IntakeRecord[];
@@ -290,12 +297,23 @@ const PAYBILL_CALLBACK_URL = clean(
       ? `${String(process.env.KISMART_PUBLIC_BASE_URL).replace(/\/$/, "")}/api/payments/paybill-callback`
       : "")
 );
+// Official Daraja production host for Lipa Na M-Pesa Online (M-Pesa Express / STK Push).
 const MPESA_API_BASE_URL = (process.env.KISMART_MPESA_API_BASE_URL || "https://api.safaricom.co.ke").replace(/\/$/, "");
-const MPESA_CONFIGURED = Boolean(PAYBILL_ENABLED && PAYBILL_API_KEY && PAYBILL_API_SECRET && PAYBILL_PASSKEY && PAYBILL_BUSINESS_NUMBER && PAYBILL_CALLBACK_URL);
+// PayBill STK uses CustomerPayBillOnline with BusinessShortCode === PartyB (both 4749801 in production).
+const MPESA_TRANSACTION_TYPE = "CustomerPayBillOnline" as const;
+const MPESA_PARTY_B = PAYBILL_BUSINESS_NUMBER;
+const MPESA_CONFIGURED = Boolean(
+  PAYBILL_ENABLED && PAYBILL_API_KEY && PAYBILL_API_SECRET && PAYBILL_PASSKEY && PAYBILL_BUSINESS_NUMBER && PAYBILL_CALLBACK_URL
+);
+const MPESA_HTTP_MAX_ATTEMPTS = Math.max(1, numberFrom(process.env.KISMART_MPESA_HTTP_RETRIES, 3));
 const DEFAULT_PAYMENT_APP_PACKAGES = ["com.safaricom.mpesa", "com.safaricom.mpesa.lifestyle", "ke.co.safaricom.mpesa"];
 const PAYMENT_APP_PACKAGES = paymentAppPackagesFromEnv(process.env.KISMART_PAYMENT_APP_PACKAGES);
 const ANDROID_AGENT_PACKAGE = "africa.volo.kismart.agent";
-const FIRESTORE_OPERATION_TIMEOUT_MS = numberFrom(process.env.KISMART_FIRESTORE_TIMEOUT_MS, 5000);
+// Vercel cold starts + Safaricom latency need more than the free-tier default 5s.
+const FIRESTORE_OPERATION_TIMEOUT_MS = numberFrom(
+  process.env.KISMART_FIRESTORE_TIMEOUT_MS,
+  process.env.VERCEL ? 20000 : 15000
+);
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   Admin: ["contracts.write", "payments.write", "notices.write", "restrictions.write", "reports.read"],
@@ -414,6 +432,12 @@ async function routeRequest(request: any, response: any) {
       remoteReady: usingFirestore || !process.env.VERCEL,
       deviceSyncSecretConfigured: Boolean(DEVICE_SYNC_SECRET),
       firestoreError: usingFirestore ? null : firestoreLastError,
+      mpesaConfigured: MPESA_CONFIGURED,
+      mpesaTransactionType: MPESA_TRANSACTION_TYPE,
+      mpesaShortcode: PAYBILL_BUSINESS_NUMBER,
+      mpesaPartyB: MPESA_PARTY_B,
+      mpesaCallbackConfigured: Boolean(PAYBILL_CALLBACK_URL && PAYBILL_CALLBACK_URL.startsWith("https://")),
+      mpesaApiBase: MPESA_API_BASE_URL,
       time: nowIso(),
     });
     return;
@@ -1081,14 +1105,23 @@ async function routeRequest(request: any, response: any) {
     if (!formatMpesaPhone(phoneNumber) || formatMpesaPhone(phoneNumber).length < 12) {
       throw new HttpError(400, "A valid Kenyan M-Pesa phone number is required (e.g. 07XXXXXXXX or 2547XXXXXXXX).");
     }
-    // AccountReference max 12 chars on Daraja; use contract id so callbacks map cleanly.
-    const accountReference = clean(contract.id).slice(0, 12) || PAYBILL_ACCOUNT_NUMBER.slice(0, 12);
+    // AccountReference max 12 chars on Daraja; use contract/invoice id for reconciliation.
+    const accountReference = clean(body.accountReference || body.invoiceNumber || contract.id).slice(0, 12) || PAYBILL_ACCOUNT_NUMBER.slice(0, 12);
+    const transactionDesc = clean(body.transactionDesc || `KISMART ${accountReference}`).slice(0, 13) || "KISMART PAY";
     const reference = clean(body.reference || uid("PAYBILL"));
+    const msisdn = formatMpesaPhone(phoneNumber);
 
-    let stkResult: any;
+    let stkResult: MpesaStkPushResult;
     try {
-      stkResult = await initiateMpesaStkPush(phoneNumber, amount, accountReference);
+      stkResult = await initiateMpesaStkPush({
+        phoneNumber: msisdn,
+        amount,
+        accountReference,
+        transactionDesc,
+      });
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`[mpesa-stk] initiate failed contract=${contract.id} phone=${msisdn} amount=${amount}: ${detail}`);
       state.syncEvents.unshift({
         id: uid("SYNC"),
         time: nowIso(),
@@ -1096,57 +1129,66 @@ async function routeRequest(request: any, response: any) {
         provider: "M-Pesa PayBill",
         reference,
         status: "Failed",
-        message: `PayBill STK prompt failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `PayBill STK prompt failed: ${detail}`,
+        phoneNumber: msisdn,
+        amount,
+        accountReference,
       });
-      await saveState(state);
-      throw error;
+      try {
+        await saveState(state);
+      } catch (saveError) {
+        console.error(`[mpesa-stk] failed to persist STK failure: ${saveError instanceof Error ? saveError.message : String(saveError)}`);
+      }
+      throw new HttpError(502, detail);
     }
 
-    const responseCode = String(stkResult?.ResponseCode ?? "");
-    if (responseCode && responseCode !== "0") {
-      const detail = clean(stkResult?.ResponseDescription || stkResult?.errorMessage || "STK Push rejected by Safaricom");
-      state.syncEvents.unshift({
-        id: uid("SYNC"),
-        time: nowIso(),
-        contractId: contract.id,
-        provider: "M-Pesa PayBill",
-        reference: clean(stkResult?.CheckoutRequestID || reference),
-        status: "Failed",
-        message: `PayBill STK rejected: ${detail}`,
-      });
-      await saveState(state);
-      throw new HttpError(502, `M-Pesa STK Push rejected: ${detail}`);
-    }
-
-    const checkoutRequestId = clean(stkResult.CheckoutRequestID || reference);
+    const checkoutRequestId = clean(stkResult.CheckoutRequestID);
+    const merchantRequestId = clean(stkResult.MerchantRequestID);
+    // Persist both Daraja IDs so the async callback can match CheckoutRequestID → contract.
     state.syncEvents.unshift({
       id: uid("SYNC"),
       time: nowIso(),
       contractId: contract.id,
       provider: "M-Pesa PayBill",
-      reference: checkoutRequestId,
+      reference: checkoutRequestId || reference,
       status: "Pending",
-      message: `PayBill STK prompt initiated - shortcode ${PAYBILL_BUSINESS_NUMBER} account ${accountReference} for ${formatKes(amount)} on ${formatMpesaPhone(phoneNumber)}`,
+      message: `STK Push initiated CheckoutID=${checkoutRequestId} MerchantID=${merchantRequestId} shortcode=${PAYBILL_BUSINESS_NUMBER} account=${accountReference} amount=${formatKes(amount)} phone=${msisdn}`,
+      merchantRequestId,
+      phoneNumber: msisdn,
+      amount,
+      accountReference,
     });
-    recordDeviceEvent(state, contract, "Heartbeat", "Online", `PayBill STK prompt initiated for ${formatKes(amount)} to ${formatMpesaPhone(phoneNumber)}`, {
+    recordDeviceEvent(state, contract, "Heartbeat", "Online", `PayBill STK prompt initiated for ${formatKes(amount)} to ${msisdn}`, {
       appVersion: clean(body.appVersion || "unknown"),
       reference: checkoutRequestId,
+      merchantRequestId,
       amount,
-      phoneNumber: formatMpesaPhone(phoneNumber),
+      phoneNumber: msisdn,
       paybillNumber: PAYBILL_BUSINESS_NUMBER,
       accountNumber: accountReference,
       identity: "verified",
     });
-    addAudit(state, "Device Agent", "PayBill STK initiated", `${contract.id} - ${formatKes(amount)} to ${formatMpesaPhone(phoneNumber)} (CheckoutID: ${checkoutRequestId})`);
+    addAudit(
+      state,
+      "Device Agent",
+      "PayBill STK initiated",
+      `${contract.id} - ${formatKes(amount)} to ${msisdn} (CheckoutID: ${checkoutRequestId}, MerchantID: ${merchantRequestId})`
+    );
     await saveState(state);
+    console.log(
+      `[mpesa-stk] accepted contract=${contract.id} checkout=${checkoutRequestId} merchant=${merchantRequestId} amount=${amount} phone=${msisdn}`
+    );
     sendJson(response, 202, {
       message: "M-Pesa STK prompt sent. Enter your M-Pesa PIN on the phone to complete payment.",
       reference: checkoutRequestId,
+      checkoutRequestId,
+      merchantRequestId,
       amount,
-      phoneNumber: formatMpesaPhone(phoneNumber),
+      phoneNumber: msisdn,
       paybill: PAYBILL_BUSINESS_NUMBER,
+      partyB: PAYBILL_BUSINESS_NUMBER,
+      transactionType: MPESA_TRANSACTION_TYPE,
       account: accountReference,
-      merchantRequestId: clean(stkResult.MerchantRequestID || ""),
       customerMessage: clean(stkResult.CustomerMessage || ""),
     });
     return;
@@ -4590,16 +4632,19 @@ async function saveFirestoreState(state: AppState) {
   // Optional collection mirroring is opt-in to avoid free-tier write exhaustion.
   const firestore = getFirestoreDb();
   const compact = compactStateForStorage(state);
-  await getFirestoreStateDoc().set({
-    updatedAt: nowIso(),
-    version: VERSION,
-    state: toFirestoreRecord(compact),
-  });
-  await firestore.collection(FIRESTORE_SETTINGS_COLLECTION).doc(FIRESTORE_SETTINGS_DOCUMENT).set({
-    ...toFirestoreRecord(state.settings),
-    updatedAt: nowIso(),
-    version: VERSION,
-  });
+  // Parallel writes cut Vercel latency vs sequential sets (helps stay under cold-start budgets).
+  await Promise.all([
+    getFirestoreStateDoc().set({
+      updatedAt: nowIso(),
+      version: VERSION,
+      state: toFirestoreRecord(compact),
+    }),
+    firestore.collection(FIRESTORE_SETTINGS_COLLECTION).doc(FIRESTORE_SETTINGS_DOCUMENT).set({
+      ...toFirestoreRecord(state.settings),
+      updatedAt: nowIso(),
+      version: VERSION,
+    }),
+  ]);
 
   const mirrorCollections = (process.env.KISMART_FIRESTORE_MIRROR_COLLECTIONS || "false").toLowerCase() === "true";
   if (!mirrorCollections) return;
@@ -4657,7 +4702,8 @@ function markFirestoreUnavailable(error: unknown) {
   }
   firestoreLastError = message;
   firestoreUnavailable = true;
-  firestoreUnavailableUntil = Date.now() + 30_000;
+  // Short cooldown so remote phones recover quickly after a single slow write on Vercel.
+  firestoreUnavailableUntil = Date.now() + 12_000;
   firestoreDb = null;
   firestoreStateDoc = null;
 }
@@ -4821,6 +4867,8 @@ function firebaseCredential() {
     FIREBASE_SERVICE_ACCOUNT_PATH
       ? (isAbsolute(FIREBASE_SERVICE_ACCOUNT_PATH) ? FIREBASE_SERVICE_ACCOUNT_PATH : join(__dirname, FIREBASE_SERVICE_ACCOUNT_PATH))
       : "",
+    join(__dirname, "kismart-live-stk-firebase-adminsdk.json"),
+    join(__dirname, "kismart-live-stk-service-account.json"),
     join(__dirname, "kismart-456ee-firebase-adminsdk-fbsvc-cb69615c3e.json"),
     join(__dirname, "firebase-service-account.json"),
   ].filter(Boolean);
@@ -5140,11 +5188,35 @@ function resolveContractForCallback(state: AppState, body: any) {
 
 function resolveContractByMpesaReference(state: AppState, reference: string) {
   if (!reference) return null;
-  const event = state.syncEvents.find((e) => e.reference === reference);
-  if (event) {
-    return state.contracts.find((c) => c.id === event.contractId);
+  const checkout = clean(reference);
+  // Primary: CheckoutRequestID stored as syncEvents.reference when STK was initiated.
+  const byCheckout = state.syncEvents.find((e) => clean(e.reference) === checkout);
+  if (byCheckout) {
+    return state.contracts.find((c) => c.id === byCheckout.contractId) || null;
+  }
+  // Secondary: MerchantRequestID recorded on the pending STK event.
+  const byMerchant = state.syncEvents.find((e) => clean(e.merchantRequestId || "") === checkout);
+  if (byMerchant) {
+    return state.contracts.find((c) => c.id === byMerchant.contractId) || null;
   }
   return null;
+}
+
+function markPendingStkEvent(
+  state: AppState,
+  checkoutRequestId: string,
+  status: "Pending" | "Synced" | "Failed",
+  message: string
+) {
+  const checkout = clean(checkoutRequestId);
+  if (!checkout) return;
+  const event = state.syncEvents.find(
+    (e) => clean(e.reference) === checkout || clean(e.merchantRequestId || "") === checkout
+  );
+  if (event) {
+    event.status = status;
+    event.message = message;
+  }
 }
 
 function parseMpesaStkCallback(body: any) {
@@ -5165,24 +5237,31 @@ function parseMpesaStkCallback(body: any) {
 }
 
 /**
- * Handles Safaricom STK Push result callbacks.
- * Returns true when the body was an STK callback (whether payment succeeded or failed).
- * Always acknowledges with ResultCode 0 so Safaricom does not keep retrying.
+ * Handles Safaricom STK Push result callbacks (M-Pesa Express).
+ * Matches CheckoutRequestID to the pending initiation, then updates payment status.
+ * Always ACKs ResultCode 0 so Safaricom does not keep retrying the callback.
  */
 async function handleMpesaStkCallback(body: any, response: any): Promise<boolean> {
   const stk = parseMpesaStkCallback(body);
   if (!stk) return false;
 
+  console.log(
+    `[mpesa-callback] checkout=${stk.checkoutRequestId} merchant=${stk.merchantRequestId} result=${stk.resultCode} desc=${stk.resultDesc}`
+  );
+
   const state = await loadState();
-  let contract = resolveContractByMpesaReference(state, stk.checkoutRequestId);
+  let contract =
+    resolveContractByMpesaReference(state, stk.checkoutRequestId) ||
+    resolveContractByMpesaReference(state, stk.merchantRequestId);
+
   if (!contract && stk.phoneNumber) {
     const phone = formatMpesaPhone(String(stk.phoneNumber));
     contract =
-      state.contracts.find((c) => formatMpesaPhone(c.customer.phone) === phone) ||
-      null;
+      state.contracts.find((c) => formatMpesaPhone(c.customer.phone) === phone) || null;
   }
 
   if (!contract) {
+    console.error(`[mpesa-callback] unmatched CheckoutRequestID=${stk.checkoutRequestId}`);
     state.syncEvents.unshift({
       id: uid("SYNC"),
       time: nowIso(),
@@ -5190,14 +5269,19 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
       provider: "M-Pesa STK",
       reference: stk.checkoutRequestId || stk.receiptNumber || "UNKNOWN",
       status: "Failed",
-      message: `STK callback received but no matching contract found for CheckoutID: ${stk.checkoutRequestId}`,
+      message: `STK callback received but no matching contract for CheckoutID=${stk.checkoutRequestId} MerchantID=${stk.merchantRequestId}`,
+      merchantRequestId: stk.merchantRequestId,
+      phoneNumber: stk.phoneNumber ? formatMpesaPhone(stk.phoneNumber) : undefined,
+      amount: stk.amount || undefined,
     });
     await saveState(state);
-    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Unmatched)" });
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
 
   if (stk.resultCode !== 0) {
+    const failMessage = `STK Push failed: ${stk.resultDesc} (${stk.resultCode})`;
+    markPendingStkEvent(state, stk.checkoutRequestId, "Failed", failMessage);
     state.syncEvents.unshift({
       id: uid("SYNC"),
       time: nowIso(),
@@ -5205,15 +5289,18 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
       provider: "M-Pesa STK",
       reference: stk.checkoutRequestId,
       status: "Failed",
-      message: `STK Push cancelled or failed: ${stk.resultDesc} (${stk.resultCode})`,
+      message: failMessage,
+      merchantRequestId: stk.merchantRequestId,
+      phoneNumber: stk.phoneNumber ? formatMpesaPhone(stk.phoneNumber) : undefined,
     });
     await saveState(state);
-    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Failure recorded)" });
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
 
   const receipt = clean(stk.receiptNumber || stk.checkoutRequestId);
   if (!receipt) {
+    markPendingStkEvent(state, stk.checkoutRequestId, "Failed", "STK success callback missing MpesaReceiptNumber");
     state.syncEvents.unshift({
       id: uid("SYNC"),
       time: nowIso(),
@@ -5222,33 +5309,63 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
       reference: stk.checkoutRequestId,
       status: "Failed",
       message: "STK success callback missing MpesaReceiptNumber",
+      merchantRequestId: stk.merchantRequestId,
     });
     await saveState(state);
-    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Missing receipt)" });
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
 
-  const existingPayment = findPaymentByReference(state, receipt, "M-Pesa");
-  if (existingPayment) {
-    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Duplicate)" });
+  // Idempotent: ignore duplicate callbacks for the same M-Pesa receipt.
+  const existingByReceipt = findPaymentByReference(state, receipt, "M-Pesa");
+  if (existingByReceipt) {
+    markPendingStkEvent(state, stk.checkoutRequestId, "Synced", `STK already recorded as ${receipt}`);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
+    return true;
+  }
+  const existingByCheckout = findPaymentByReference(state, stk.checkoutRequestId, "M-Pesa");
+  if (existingByCheckout) {
+    markPendingStkEvent(state, stk.checkoutRequestId, "Synced", `STK already recorded for ${stk.checkoutRequestId}`);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
+    return true;
+  }
+
+  const amount = stk.amount > 0 ? stk.amount : numberFrom(
+    state.syncEvents.find((e) => clean(e.reference) === clean(stk.checkoutRequestId))?.amount,
+    0
+  );
+  if (amount <= 0) {
+    console.error(`[mpesa-callback] missing amount for checkout=${stk.checkoutRequestId}`);
+    markPendingStkEvent(state, stk.checkoutRequestId, "Failed", "STK success callback missing amount");
+    await saveState(state);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
 
   const payment = addPayment(contract, {
-    amount: stk.amount,
+    amount,
     method: "M-Pesa",
     reference: receipt,
     date: todayIso(),
     status: "Synced",
   });
+  markPendingStkEvent(
+    state,
+    stk.checkoutRequestId,
+    "Synced",
+    `STK Push payment confirmed - ${receipt} for ${formatKes(amount)}`
+  );
   state.syncEvents.unshift({
     id: uid("SYNC"),
     time: nowIso(),
     contractId: contract.id,
     provider: "M-Pesa STK",
-    reference: stk.checkoutRequestId || receipt,
+    reference: receipt,
     status: "Synced",
-    message: `STK Push payment confirmed - ${receipt} for ${formatKes(stk.amount)}`,
+    message: `STK Push payment confirmed - receipt ${receipt} checkout ${stk.checkoutRequestId} for ${formatKes(amount)}`,
+    merchantRequestId: stk.merchantRequestId,
+    phoneNumber: stk.phoneNumber ? formatMpesaPhone(stk.phoneNumber) : undefined,
+    amount,
   });
   const automaticControls = applyAutomaticPaymentControls(state, [contract]);
   if (automaticControls.changed) {
@@ -5256,7 +5373,8 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
   }
   addAudit(state, "System", "STK Push payment confirmed", `${contract.id} - ${formatKes(payment.amount)} (${receipt})`);
   await saveState(state);
-  sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success" });
+  console.log(`[mpesa-callback] paid contract=${contract.id} receipt=${receipt} amount=${amount}`);
+  sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
   return true;
 }
 
@@ -6503,7 +6621,7 @@ function getReadiness(state: AppState) {
       title: "M-Pesa production STK",
       status: MPESA_CONFIGURED ? "Ready" : PAYBILL_ENABLED ? "Attention" : "Blocked",
       detail: MPESA_CONFIGURED
-        ? `PayBill ${PAYBILL_BUSINESS_NUMBER} is configured against ${MPESA_API_BASE_URL}. Fake STK is ${ALLOW_FAKE_STK ? "ON (disable for production)" : "off"}.`
+        ? `Daraja production STK (CustomerPayBillOnline) shortcode ${PAYBILL_BUSINESS_NUMBER} → ${MPESA_API_BASE_URL}; callback ${PAYBILL_CALLBACK_URL || "(missing)"}. Fake STK is ${ALLOW_FAKE_STK ? "ON (disable for production)" : "off"}.`
         : "Set KISMART_PAYBILL_ENABLED plus Consumer Key/Secret, Passkey, shortcode, and HTTPS callback URL.",
     },
     {
@@ -6813,95 +6931,112 @@ async function readBody(request: any) {
   });
 }
 
-async function getMpesaAccessToken() {
-  const credentials = Buffer.from(`${PAYBILL_API_KEY}:${PAYBILL_API_SECRET}`).toString("base64");
-  const response = await fetch(`${MPESA_API_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${credentials}` },
-  });
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`M-Pesa auth failed: ${error}`);
-  }
-  const data: any = await response.json();
-  return data.access_token;
+/**
+ * ---------------------------------------------------------------------------
+ * Safaricom Daraja Production — M-Pesa Express (STK Push / Lipa Na M-Pesa Online)
+ * Endpoints:
+ *   OAuth:   GET  {MPESA_API_BASE_URL}/oauth/v1/generate?grant_type=client_credentials
+ *   STK:     POST {MPESA_API_BASE_URL}/mpesa/stkpush/v1/processrequest
+ *   Query:   POST {MPESA_API_BASE_URL}/mpesa/stkpushquery/v1/query
+ * Password: Base64(BusinessShortCode + Passkey + Timestamp) where Timestamp = yyyyMMddHHmmss (EAT)
+ * ---------------------------------------------------------------------------
+ */
+
+interface MpesaStkPushInput {
+  phoneNumber: string;
+  amount: number;
+  accountReference: string;
+  transactionDesc?: string;
 }
 
-async function initiateMpesaStkPush(phoneNumber: string, amount: number, accountReference: string) {
+interface MpesaStkPushResult {
+  MerchantRequestID: string;
+  CheckoutRequestID: string;
+  ResponseCode: string;
+  ResponseDescription: string;
+  CustomerMessage: string;
+}
+
+let mpesaAccessTokenCache: { token: string; expiresAt: number } | null = null;
+
+async function sleepMs(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Fetch with exponential backoff for transient network / 5xx failures. */
+async function mpesaFetchWithRetry(
+  url: string,
+  init: RequestInit,
+  label: string
+): Promise<{ response: Response; text: string }> {
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MPESA_HTTP_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      const text = await response.text();
+      // Retry only on gateway / rate-limit style failures.
+      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < MPESA_HTTP_MAX_ATTEMPTS) {
+        console.warn(`[mpesa] ${label} HTTP ${response.status} attempt ${attempt}/${MPESA_HTTP_MAX_ATTEMPTS}; retrying`);
+        await sleepMs(400 * attempt * attempt);
+        continue;
+      }
+      return { response, text };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`[mpesa] ${label} network error attempt ${attempt}/${MPESA_HTTP_MAX_ATTEMPTS}: ${lastError.message}`);
+      if (attempt >= MPESA_HTTP_MAX_ATTEMPTS) break;
+      await sleepMs(400 * attempt * attempt);
+    }
+  }
+  throw lastError || new Error(`M-Pesa ${label} failed after ${MPESA_HTTP_MAX_ATTEMPTS} attempts`);
+}
+
+/**
+ * OAuth access token for Daraja production.
+ * Cached in-memory until ~60s before expiry (token lifetime is typically 3599s).
+ */
+async function getMpesaAccessToken(): Promise<string> {
   if (!PAYBILL_API_KEY || !PAYBILL_API_SECRET) {
-    throw new Error("M-Pesa Consumer Key/Secret are not configured");
+    throw new Error("M-Pesa Consumer Key/Secret are not configured (KISMART_PAYBILL_API_KEY / KISMART_PAYBILL_API_SECRET)");
   }
-  if (!PAYBILL_PASSKEY) {
-    throw new Error("M-Pesa Lipa Na M-Pesa Online Passkey is not configured");
-  }
-  if (!PAYBILL_CALLBACK_URL) {
-    throw new Error("M-Pesa CallBackURL is not configured (KISMART_PAYBILL_CALLBACK_URL)");
-  }
-  if (!PAYBILL_CALLBACK_URL.startsWith("https://")) {
-    throw new Error("M-Pesa CallBackURL must be a public HTTPS URL");
+  if (mpesaAccessTokenCache && Date.now() < mpesaAccessTokenCache.expiresAt) {
+    return mpesaAccessTokenCache.token;
   }
 
-  const accessToken = await getMpesaAccessToken();
-  // Daraja password timestamp must be YYYYMMDDHHmmss in East Africa Time (UTC+3).
-  const timestamp = mpesaTimestampEAT();
-  const password = Buffer.from(`${PAYBILL_BUSINESS_NUMBER}${PAYBILL_PASSKEY}${timestamp}`).toString("base64");
-  const msisdn = formatMpesaPhone(phoneNumber);
-  const cleanAccountRef = clean(accountReference).slice(0, 12) || "KISMART";
+  const credentials = Buffer.from(`${PAYBILL_API_KEY}:${PAYBILL_API_SECRET}`).toString("base64");
+  const url = `${MPESA_API_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`;
+  const { response, text } = await mpesaFetchWithRetry(
+    url,
+    { headers: { Authorization: `Basic ${credentials}` } },
+    "oauth"
+  );
 
-  const body = {
-    BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
-    Password: password,
-    Timestamp: timestamp,
-    TransactionType: "CustomerPayBillOnline",
-    Amount: Math.max(1, Math.round(amount)),
-    PartyA: msisdn,
-    PartyB: PAYBILL_BUSINESS_NUMBER,
-    PhoneNumber: msisdn,
-    // STK result callbacks are validated by payload structure, not shared secret.
-    CallBackURL: PAYBILL_CALLBACK_URL,
-    AccountReference: cleanAccountRef,
-    TransactionDesc: `KISMART ${cleanAccountRef}`.slice(0, 13),
-  };
+  if (!response.ok) {
+    mpesaAccessTokenCache = null;
+    throw new Error(`M-Pesa auth failed (HTTP ${response.status}): ${text.slice(0, 300)}`);
+  }
 
-  const response = await fetch(`${MPESA_API_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  const raw = await response.text();
   let data: any = {};
   try {
-    data = raw ? JSON.parse(raw) : {};
+    data = text ? JSON.parse(text) : {};
   } catch {
-    data = { raw };
-  }
-  if (!response.ok) {
-    const error = clean(data.errorMessage || data.ResponseDescription || raw || `HTTP ${response.status}`);
-    throw new Error(`STK Push failed: ${error}`);
+    throw new Error(`M-Pesa auth failed: invalid JSON response`);
   }
 
-  return data;
+  const token = String(data.access_token || "");
+  if (!token) throw new Error("M-Pesa auth failed: empty access_token");
+
+  const expiresInSec = Math.max(60, numberFrom(data.expires_in, 3599) - 60);
+  mpesaAccessTokenCache = { token, expiresAt: Date.now() + expiresInSec * 1000 };
+  console.log(`[mpesa] OAuth token acquired (expires_in≈${expiresInSec}s)`);
+  return token;
 }
 
-function formatMpesaPhone(phone: string) {
-  let cleaned = String(phone || "").replace(/\D/g, "");
-  if (cleaned.startsWith("0")) {
-    cleaned = "254" + cleaned.substring(1);
-  } else if (cleaned.startsWith("7") && cleaned.length === 9) {
-    cleaned = "254" + cleaned;
-  } else if (cleaned.startsWith("1") && cleaned.length === 9) {
-    cleaned = "254" + cleaned;
-  } else if (cleaned.startsWith("+")) {
-    cleaned = cleaned.replace(/^\+/, "");
-  }
-  return cleaned;
-}
-
-/** YYYYMMDDHHmmss for Lipa Na M-Pesa Online password, using Africa/Nairobi (UTC+3). */
-function mpesaTimestampEAT() {
+/**
+ * Password = Base64(ShortCode + Passkey + Timestamp)
+ * Timestamp format: yyyyMMddHHmmss in Africa/Nairobi (UTC+3, no DST).
+ */
+function mpesaTimestampEAT(): string {
   const eat = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return (
     eat.getUTCFullYear().toString() +
@@ -6911,6 +7046,192 @@ function mpesaTimestampEAT() {
     String(eat.getUTCMinutes()).padStart(2, "0") +
     String(eat.getUTCSeconds()).padStart(2, "0")
   );
+}
+
+function buildMpesaStkPassword(timestamp: string): string {
+  if (!PAYBILL_PASSKEY) {
+    throw new Error("M-Pesa Lipa Na M-Pesa Online Passkey is not configured (KISMART_PAYBILL_PASSKEY)");
+  }
+  if (!PAYBILL_BUSINESS_NUMBER) {
+    throw new Error("M-Pesa Business Short Code is not configured (KISMART_PAYBILL_BUSINESS_NUMBER)");
+  }
+  return Buffer.from(`${PAYBILL_BUSINESS_NUMBER}${PAYBILL_PASSKEY}${timestamp}`).toString("base64");
+}
+
+/**
+ * Normalize Kenyan MSISDN to 2547XXXXXXXX / 2541XXXXXXXX (no +).
+ */
+function formatMpesaPhone(phone: string): string {
+  let cleaned = String(phone || "").replace(/\D/g, "");
+  if (cleaned.startsWith("0") && cleaned.length === 10) {
+    cleaned = "254" + cleaned.substring(1);
+  } else if ((cleaned.startsWith("7") || cleaned.startsWith("1")) && cleaned.length === 9) {
+    cleaned = "254" + cleaned;
+  } else if (cleaned.startsWith("254") && cleaned.length === 12) {
+    // already correct
+  } else if (cleaned.startsWith("2540") && cleaned.length === 13) {
+    cleaned = "254" + cleaned.substring(4);
+  }
+  return cleaned;
+}
+
+function assertMpesaStkConfig() {
+  if (!PAYBILL_ENABLED) {
+    throw new Error("M-Pesa PayBill integration is disabled (KISMART_PAYBILL_ENABLED=false)");
+  }
+  if (!PAYBILL_API_KEY || !PAYBILL_API_SECRET) {
+    throw new Error("M-Pesa Consumer Key/Secret are not configured");
+  }
+  if (!PAYBILL_PASSKEY) {
+    throw new Error("M-Pesa Passkey is not configured");
+  }
+  if (!PAYBILL_BUSINESS_NUMBER) {
+    throw new Error("M-Pesa Business Short Code is not configured");
+  }
+  if (!PAYBILL_CALLBACK_URL) {
+    throw new Error("M-Pesa CallBackURL is not configured (KISMART_PAYBILL_CALLBACK_URL)");
+  }
+  if (!PAYBILL_CALLBACK_URL.startsWith("https://")) {
+    throw new Error("M-Pesa CallBackURL must be a public HTTPS URL");
+  }
+}
+
+/**
+ * Initiate M-Pesa Express STK Push (CustomerPayBillOnline) against Daraja production.
+ * Amount is dynamic; PartyA/PhoneNumber are 254…; PartyB = BusinessShortCode (PayBill).
+ */
+async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkPushResult> {
+  assertMpesaStkConfig();
+
+  const msisdn = formatMpesaPhone(input.phoneNumber);
+  if (!/^254[71]\d{8}$/.test(msisdn)) {
+    throw new Error(`Invalid M-Pesa phone number (expected 2547XXXXXXXX): ${msisdn || "(empty)"}`);
+  }
+
+  const amount = Math.max(1, Math.round(Number(input.amount) || 0));
+  if (!Number.isFinite(amount) || amount < 1) {
+    throw new Error("STK amount must be a positive whole number");
+  }
+
+  const accountReference = clean(input.accountReference).slice(0, 12) || "KISMART";
+  const transactionDesc = clean(input.transactionDesc || `KISMART ${accountReference}`).slice(0, 13) || "KISMART PAY";
+
+  const accessToken = await getMpesaAccessToken();
+  const timestamp = mpesaTimestampEAT();
+  const password = buildMpesaStkPassword(timestamp);
+
+  // Official Lipa Na M-Pesa Online request body (PayBill).
+  const body = {
+    BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
+    Password: password,
+    Timestamp: timestamp,
+    TransactionType: "CustomerPayBillOnline",
+    Amount: amount,
+    PartyA: msisdn,
+    PartyB: PAYBILL_BUSINESS_NUMBER,
+    PhoneNumber: msisdn,
+    CallBackURL: PAYBILL_CALLBACK_URL,
+    AccountReference: accountReference,
+    TransactionDesc: transactionDesc,
+  };
+
+  console.log(
+    `[mpesa-stk] processrequest shortcode=${body.BusinessShortCode} partyB=${body.PartyB} type=${body.TransactionType} amount=${amount} phone=${msisdn} account=${accountReference} ts=${timestamp}`
+  );
+
+  const { response, text } = await mpesaFetchWithRetry(
+    `${MPESA_API_BASE_URL}/mpesa/stkpush/v1/processrequest`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    "stkpush"
+  );
+
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    // Invalidate token on auth-style failures so the next attempt refreshes.
+    if (response.status === 401 || response.status === 403) {
+      mpesaAccessTokenCache = null;
+    }
+    const error = clean(data.errorMessage || data.ResponseDescription || data.errorCode || text || `HTTP ${response.status}`);
+    console.error(`[mpesa-stk] processrequest failed HTTP ${response.status}: ${error}`);
+    throw new Error(`STK Push failed: ${error}`);
+  }
+
+  const responseCode = String(data.ResponseCode ?? "");
+  if (responseCode && responseCode !== "0") {
+    const detail = clean(data.ResponseDescription || data.errorMessage || "STK Push rejected by Safaricom");
+    console.error(`[mpesa-stk] rejected ResponseCode=${responseCode}: ${detail}`);
+    throw new Error(`STK Push rejected: ${detail}`);
+  }
+
+  const result: MpesaStkPushResult = {
+    MerchantRequestID: clean(data.MerchantRequestID || ""),
+    CheckoutRequestID: clean(data.CheckoutRequestID || ""),
+    ResponseCode: responseCode || "0",
+    ResponseDescription: clean(data.ResponseDescription || ""),
+    CustomerMessage: clean(data.CustomerMessage || ""),
+  };
+
+  if (!result.CheckoutRequestID) {
+    throw new Error("STK Push accepted but CheckoutRequestID was missing from Safaricom response");
+  }
+
+  console.log(
+    `[mpesa-stk] accepted CheckoutRequestID=${result.CheckoutRequestID} MerchantRequestID=${result.MerchantRequestID}`
+  );
+  return result;
+}
+
+/** Optional STK status query (used for diagnostics / admin tooling). */
+async function queryMpesaStkStatus(checkoutRequestId: string) {
+  assertMpesaStkConfig();
+  const token = await getMpesaAccessToken();
+  const timestamp = mpesaTimestampEAT();
+  const password = buildMpesaStkPassword(timestamp);
+  const { response, text } = await mpesaFetchWithRetry(
+    `${MPESA_API_BASE_URL}/mpesa/stkpushquery/v1/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
+        Password: password,
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestId,
+      }),
+    },
+    "stkquery"
+  );
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  return {
+    ok: response.ok,
+    resultCode:
+      data.ResultCode === undefined || data.ResultCode === null || data.ResultCode === ""
+        ? null
+        : Number(data.ResultCode),
+    resultDesc: clean(data.ResultDesc || data.ResponseDescription || data.errorMessage || ""),
+    raw: data,
+  };
 }
 
 
