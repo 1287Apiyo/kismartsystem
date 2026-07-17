@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 // Reconnected to Firestore for kismart-456ee
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,6 +104,11 @@ interface RestrictionState {
   active: boolean;
   level: RestrictionLevel;
   appliedAt: string | null;
+  /**
+   * When true, automatic arrears-based Limited access will not re-lock the phone.
+   * Set by admin Restore / paid-up restore; cleared when admin applies a restriction again.
+   */
+  holdAutoRestrict?: boolean;
 }
 
 interface Contract {
@@ -332,6 +337,7 @@ const eventClients = new Set<any>();
 let firestoreDb: any = null;
 let firestoreStateDoc: any = null;
 let firestoreUnavailable = false;
+let firestoreUnavailableUntil = 0;
 let firestoreLastError: string | null = null;
 let automaticPaymentControlRunning = false;
 let automaticPaymentControlLoopStarted = false;
@@ -391,12 +397,16 @@ async function routeRequest(request: any, response: any) {
   }
 
   if (method === "GET" && (url.pathname === "/api/health" || url.pathname === "/health")) {
+    const usingFirestore = isFirestoreStorage();
     sendJson(response, 200, {
       ok: true,
       service: SHOP_NAME,
       version: VERSION,
       publicBaseUrl: PUBLIC_BASE_URL,
-      storage: isFirestoreStorage() ? "firestore" : "json",
+      storage: usingFirestore ? "firestore" : "json",
+      remoteReady: usingFirestore || !process.env.VERCEL,
+      deviceSyncSecretConfigured: Boolean(DEVICE_SYNC_SECRET),
+      firestoreError: usingFirestore ? null : firestoreLastError,
       time: nowIso(),
     });
     return;
@@ -4226,8 +4236,8 @@ function ecosystemSummary() {
 function deviceAgentGuide() {
   return '<div class="queue">' +
     '<div class="readiness-row"><strong>Android policy pull</strong><p>GET /api/devices/:imei/policy returns balance, arrears, next due date, and the current restriction level for the Android agent.</p>' + badge("Ready") + '</div>' +
-    '<div class="readiness-row"><strong>Android identity binding</strong><p>First trusted sync locks the contract to that handset Android ID and issues a binding token. Reinstalls and app-data wipes on the same phone are re-accepted automatically using Android ID; only a different physical handset needs Reset ID.</p>' + badge("Ready") + '</div>' +
-    '<div class="readiness-row"><strong>Remote device control</strong><p>Phones sync to the public control URL (' + e(PUBLIC_BASE_URL) + ') from any network. Host this backend on that URL (or set KISMART_PUBLIC_BASE_URL) and use Firestore so laptop and cloud share the same contracts.</p>' + badge("Ready") + '</div>' +
+    '<div class="readiness-row"><strong>Android identity binding</strong><p>First trusted sync locks the contract to that handset Android ID and issues a binding token. Reinstalls and app-data wipes on the same phone re-bind automatically — do not use Reset ID unless the physical handset changed.</p>' + badge("Ready") + '</div>' +
+    '<div class="readiness-row"><strong>Remote device control</strong><p>Phones must use the public HTTPS URL (' + e(PUBLIC_BASE_URL) + ') so lock/restore works on mobile data and any Wi-Fi. Admin dashboard and phones must share Firestore (not ephemeral JSON on Vercel).</p>' + badge(isFirestoreStorage() ? "Ready" : "Attention") + '</div>' +
     '<div class="readiness-row"><strong>Apple MDM bridge</strong><p>iOS contracts queue Apple MDM commands for supervised iPhones. Use Dispatch MDM or configure KISMART_IOS_MDM_PROVIDER=webhook for a real MDM connector.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Tamper reporting</strong><p>Android posts tamper events through the agent; iOS tamper and restriction depth come from the MDM provider.</p>' + badge("Ready") + '</div>' +
     '</div>';
@@ -4491,9 +4501,20 @@ function uniqueIds(ids: string[]) {
 
 async function saveJsonState(state: AppState) {
   await mkdir(DATA_DIR, { recursive: true });
-  const tempFile = `${DATA_FILE}.tmp`;
-  await writeFile(tempFile, JSON.stringify(state, null, 2));
-  await rename(tempFile, DATA_FILE);
+  const payload = JSON.stringify(state, null, 2);
+  const tempFile = `${DATA_FILE}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(tempFile, payload);
+  try {
+    // Atomic replace when the platform allows replacing an existing file.
+    await rename(tempFile, DATA_FILE);
+  } catch {
+    // Windows can fail rename-over-existing under concurrent writers; fall back to direct write.
+    await writeFile(DATA_FILE, payload);
+    try {
+      await rm(tempFile, { force: true });
+    } catch {
+    }
+  }
   cachedJsonMtimeMs = await jsonStateMtimeMs();
 }
 
@@ -4595,12 +4616,20 @@ async function saveFirestoreState(state: AppState) {
 }
 
 function isFirestoreStorage() {
-  return STORAGE_MODE === "firestore" && !firestoreUnavailable;
+  if (STORAGE_MODE !== "firestore") return false;
+  // Retry Firestore after a short cooldown so a transient failure does not strand remote phones on ephemeral JSON.
+  if (firestoreUnavailable && Date.now() >= firestoreUnavailableUntil) {
+    firestoreUnavailable = false;
+    firestoreDb = null;
+    firestoreStateDoc = null;
+  }
+  return !firestoreUnavailable;
 }
 
 function normalizeFirestoreDatabase(value: string) {
   const cleaned = clean(value);
-  if (!cleaned || cleaned === "(default)") return "";
+  // "default" is a common misconfiguration for the system (default) database id.
+  if (!cleaned || cleaned === "(default)" || cleaned.toLowerCase() === "default") return "";
   return cleaned;
 }
 
@@ -4611,6 +4640,7 @@ function markFirestoreUnavailable(error: unknown) {
   }
   firestoreLastError = message;
   firestoreUnavailable = true;
+  firestoreUnavailableUntil = Date.now() + 30_000;
   firestoreDb = null;
   firestoreStateDoc = null;
 }
@@ -4770,12 +4800,21 @@ function firebaseCredential() {
       console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:", error);
     }
   }
-  if (FIREBASE_SERVICE_ACCOUNT_PATH) {
-    const serviceAccountPath = isAbsolute(FIREBASE_SERVICE_ACCOUNT_PATH)
-      ? FIREBASE_SERVICE_ACCOUNT_PATH
-      : join(__dirname, FIREBASE_SERVICE_ACCOUNT_PATH);
-    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, "utf8"));
-    return cert(serviceAccount);
+  const candidatePaths = [
+    FIREBASE_SERVICE_ACCOUNT_PATH
+      ? (isAbsolute(FIREBASE_SERVICE_ACCOUNT_PATH) ? FIREBASE_SERVICE_ACCOUNT_PATH : join(__dirname, FIREBASE_SERVICE_ACCOUNT_PATH))
+      : "",
+    join(__dirname, "kismart-456ee-firebase-adminsdk-fbsvc-cb69615c3e.json"),
+    join(__dirname, "firebase-service-account.json"),
+  ].filter(Boolean);
+  for (const serviceAccountPath of candidatePaths) {
+    try {
+      if (!existsSync(serviceAccountPath)) continue;
+      const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, "utf8"));
+      return cert(serviceAccount);
+    } catch (error) {
+      console.error(`Failed to load Firebase service account from ${serviceAccountPath}:`, error);
+    }
   }
   return applicationDefault();
 }
@@ -4805,6 +4844,12 @@ function normalizeState(state: AppState): AppState {
       platform: normalizePlatform(contract.device?.platform),
       controlProfile: clean(contract.device?.controlProfile || "Android device owner"),
       binding: normalizeDeviceBinding(contract.device?.binding),
+    };
+    contract.restriction = {
+      active: Boolean(contract.restriction?.active),
+      level: normalizeRestrictionLevel(contract.restriction?.level || "None"),
+      appliedAt: clean(contract.restriction?.appliedAt) || null,
+      holdAutoRestrict: Boolean(contract.restriction?.holdAutoRestrict),
     };
   });
   return state;
@@ -5155,6 +5200,8 @@ function applyRestriction(state: AppState, contract: Contract, level: Restrictio
     active: level !== "None",
     level,
     appliedAt: level === "None" ? null : todayIso(),
+    // Admin/system restriction clears any temporary restore hold.
+    holdAutoRestrict: false,
   };
   supersedePendingDeviceCommands(state, contract, level);
   const provider = deviceCommandProvider(contract);
@@ -5176,6 +5223,8 @@ function restoreDevice(state: AppState, contract: Contract, action: string) {
     active: false,
     level: "None",
     appliedAt: null,
+    // Keep the phone unlocked after admin restore even if arrears remain, until admin locks again.
+    holdAutoRestrict: true,
   };
   supersedePendingDeviceCommands(state, contract, "Restore");
   const provider = deviceCommandProvider(contract);
@@ -5204,8 +5253,15 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
   contracts.forEach((contract) => {
     const progress = getProgress(contract);
     if (progress.arrears <= 0) {
-      if (!contract.restriction.active) return;
+      if (!contract.restriction.active && !contract.restriction.holdAutoRestrict) return;
+      if (!contract.restriction.active && contract.restriction.holdAutoRestrict) {
+        contract.restriction.holdAutoRestrict = false;
+        changes.contractIds?.push(contract.id);
+        return;
+      }
       const { event, audit } = restoreDevice(state, contract, "Automatic restoration after arrears cleared");
+      // Paid-up accounts do not need a long-lived hold.
+      contract.restriction.holdAutoRestrict = false;
       changes.contractIds?.push(contract.id);
       changes.syncEventIds?.push(event.id);
       changes.auditIds?.push(audit.id);
@@ -5218,6 +5274,8 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     }
 
     if (contract.restriction.active) return;
+    // Respect admin Restore: do not immediately re-lock on the next phone sync while arrears remain.
+    if (contract.restriction.holdAutoRestrict) return;
     const event = applyRestriction(state, contract, "Limited access");
     const audit = addAudit(state, "System", "Automatic payment limit applied", `${contract.id} - ${formatKes(progress.arrears)} arrears`);
     changes.contractIds?.push(contract.id);
@@ -5865,19 +5923,20 @@ function verifyDeviceIdentity(
 ): { allowed: boolean; detail?: string; changes: RuntimeSaveChanges; bindingToken: string } {
   const now = nowIso();
   const changes: RuntimeSaveChanges = { contractIds: [contract.id] };
+  const normalizedIdentity = normalizeIncomingDeviceIdentity(identity);
 
   if (!contract.device.binding) {
     const bindingToken = createDeviceBindingToken();
     contract.device.binding = {
-      installId: identity.installId,
-      androidId: identity.androidId,
-      fingerprint: identity.fingerprint,
+      installId: normalizedIdentity.installId,
+      androidId: normalizedIdentity.androidId,
+      fingerprint: normalizedIdentity.fingerprint,
       tokenHash: deviceBindingTokenHash(bindingToken),
       tokenIssuedAt: now,
-      manufacturer: identity.manufacturer,
-      brand: identity.brand,
-      model: identity.model,
-      sdk: identity.sdk,
+      manufacturer: normalizedIdentity.manufacturer,
+      brand: normalizedIdentity.brand,
+      model: normalizedIdentity.model,
+      sdk: normalizedIdentity.sdk,
       firstSeenAt: now,
       lastSeenAt: now,
       lastMismatchAt: null,
@@ -5885,10 +5944,10 @@ function verifyDeviceIdentity(
     };
     const event = recordDeviceEvent(state, contract, "Identity enrolled", "Online", "Device identity enrolled and bound to this contract", {
       source,
-      installId: shortIdentity(identity.installId),
-      androidId: shortIdentity(identity.androidId),
-      fingerprint: shortIdentity(identity.fingerprint),
-      model: identity.model,
+      installId: shortIdentity(normalizedIdentity.installId),
+      androidId: shortIdentity(normalizedIdentity.androidId),
+      fingerprint: shortIdentity(normalizedIdentity.fingerprint),
+      model: normalizedIdentity.model,
     });
     const audit = addAudit(state, "Device Agent", "Device identity enrolled", `${contract.id} - ${contract.device.imei}`);
     changes.deviceEventIds = [event.id];
@@ -5896,21 +5955,21 @@ function verifyDeviceIdentity(
     return { allowed: true, changes, bindingToken };
   }
 
-  const match = evaluateDeviceIdentityMatch(contract.device.binding, identity);
+  const match = evaluateDeviceIdentityMatch(contract.device.binding, normalizedIdentity);
   if (!match.matched) {
     contract.device.binding.lastMismatchAt = now;
     contract.device.binding.mismatchCount = numberFrom(contract.device.binding.mismatchCount) + 1;
-    const detail = "This IMEI is already bound to another phone identity. Admin must verify the handset and reset the device binding before this phone can sync.";
+    const detail = "This IMEI is already bound to another phone identity. Same-phone reinstalls recover automatically via Android ID; only a different physical handset needs Reset ID.";
     const event = recordDeviceEvent(state, contract, "Tamper alert", "Attention", "Device identity mismatch blocked", {
       source,
       matchReason: match.reason,
       expectedInstallId: shortIdentity(contract.device.binding.installId),
-      incomingInstallId: shortIdentity(identity.installId),
+      incomingInstallId: shortIdentity(normalizedIdentity.installId),
       expectedAndroidId: shortIdentity(contract.device.binding.androidId),
-      incomingAndroidId: shortIdentity(identity.androidId),
+      incomingAndroidId: shortIdentity(normalizedIdentity.androidId),
       expectedFingerprint: shortIdentity(contract.device.binding.fingerprint),
-      incomingFingerprint: shortIdentity(identity.fingerprint),
-      model: identity.model,
+      incomingFingerprint: shortIdentity(normalizedIdentity.fingerprint),
+      model: normalizedIdentity.model,
     });
     const notice: NotificationRecord = {
       id: uid("NTC"),
@@ -5931,26 +5990,32 @@ function verifyDeviceIdentity(
 
   // Same physical handset: refresh mutable fields and re-issue token after reinstall/data wipe.
   let bindingToken = "";
-  if (match.needsTokenReissue || !contract.device.binding.tokenHash) {
+  const requestHasToken = Boolean(clean(normalizedIdentity.bindingToken));
+  if (match.needsTokenReissue || !contract.device.binding.tokenHash || !requestHasToken) {
     bindingToken = createDeviceBindingToken();
     contract.device.binding.tokenHash = deviceBindingTokenHash(bindingToken);
     contract.device.binding.tokenIssuedAt = now;
   }
-  contract.device.binding.installId = identity.installId || contract.device.binding.installId;
-  contract.device.binding.androidId = identity.androidId || contract.device.binding.androidId;
-  contract.device.binding.fingerprint = identity.fingerprint || contract.device.binding.fingerprint;
+  contract.device.binding.installId = normalizedIdentity.installId || contract.device.binding.installId;
+  contract.device.binding.androidId = normalizeAndroidId(normalizedIdentity.androidId) || contract.device.binding.androidId;
+  contract.device.binding.fingerprint = normalizedIdentity.fingerprint || contract.device.binding.fingerprint;
   contract.device.binding.lastSeenAt = now;
-  contract.device.binding.manufacturer = identity.manufacturer || contract.device.binding.manufacturer;
-  contract.device.binding.brand = identity.brand || contract.device.binding.brand;
-  contract.device.binding.model = identity.model || contract.device.binding.model;
-  contract.device.binding.sdk = identity.sdk || contract.device.binding.sdk;
+  contract.device.binding.manufacturer = normalizedIdentity.manufacturer || contract.device.binding.manufacturer;
+  contract.device.binding.brand = normalizedIdentity.brand || contract.device.binding.brand;
+  contract.device.binding.model = normalizedIdentity.model || contract.device.binding.model;
+  contract.device.binding.sdk = normalizedIdentity.sdk || contract.device.binding.sdk;
+  // Clear mismatch streak after a successful same-handset recovery.
+  if (match.reason !== "binding-token") {
+    contract.device.binding.mismatchCount = 0;
+    contract.device.binding.lastMismatchAt = null;
+  }
 
-  if (match.reason === "android-id-recovery" || match.reason === "legacy-unbound-token") {
+  if (match.reason === "android-id-recovery" || match.reason === "legacy-unbound-token" || match.reason === "hardware-fingerprint-recovery") {
     const event = recordDeviceEvent(state, contract, "Identity verified", "Online", "Device identity recovered on the same handset without admin reset", {
       source,
       matchReason: match.reason,
-      androidId: shortIdentity(identity.androidId),
-      model: identity.model,
+      androidId: shortIdentity(normalizedIdentity.androidId),
+      model: normalizedIdentity.model,
     });
     changes.deviceEventIds = [event.id];
   }
@@ -5962,7 +6027,7 @@ function verifyDeviceIdentity(
  * Durable same-phone matching:
  * - Valid binding token always wins (agent reconnected with stored secret).
  * - Same Android ID wins even if app data / binding token was wiped (reinstall).
- * - Fingerprint/installId alone are not enough (they can be shared or IMEI-derived).
+ * - Same manufacturer/brand/model + fingerprint recovers older agents without a stable token.
  * Reset ID is only required when a different physical handset uses the same IMEI.
  */
 function evaluateDeviceIdentityMatch(binding: DeviceBinding, identity: DeviceIdentityInput): {
@@ -5975,22 +6040,59 @@ function evaluateDeviceIdentityMatch(binding: DeviceBinding, identity: DeviceIde
     return { matched: true, reason: "binding-token", needsTokenReissue: false };
   }
 
-  const androidIdMatch = Boolean(binding.androidId && identity.androidId && binding.androidId === identity.androidId);
+  const boundAndroidId = normalizeAndroidId(binding.androidId);
+  const incomingAndroidId = normalizeAndroidId(identity.androidId);
+  const androidIdMatch = Boolean(boundAndroidId && incomingAndroidId && boundAndroidId === incomingAndroidId);
   if (androidIdMatch) {
     // Token missing/wrong after reinstall or SharedPreferences wipe — same handset.
     return { matched: true, reason: "android-id-recovery", needsTokenReissue: true };
   }
 
-  // Backward-compatible path for older agents that had no token yet but still present both signals.
-  if (!binding.tokenHash) {
-    const installMatch = Boolean(binding.installId && identity.installId && binding.installId === identity.installId);
-    const fingerprintMatch = Boolean(binding.fingerprint && identity.fingerprint && binding.fingerprint === identity.fingerprint);
-    if (installMatch || fingerprintMatch) {
-      return { matched: true, reason: "legacy-unbound-token", needsTokenReissue: true };
-    }
+  const installMatch = Boolean(binding.installId && identity.installId && binding.installId === identity.installId);
+  if (installMatch) {
+    return { matched: true, reason: "legacy-unbound-token", needsTokenReissue: true };
+  }
+
+  // Same OS image + same hardware labels: recover after token/prefs wipe when ANDROID_ID was unavailable at enroll time.
+  const fingerprintMatch = Boolean(binding.fingerprint && identity.fingerprint && binding.fingerprint === identity.fingerprint);
+  const hardwareMatch =
+    fingerprintMatch &&
+    sameIdentityField(binding.manufacturer, identity.manufacturer) &&
+    sameIdentityField(binding.brand, identity.brand) &&
+    sameIdentityField(binding.model, identity.model);
+  if (hardwareMatch) {
+    return { matched: true, reason: "hardware-fingerprint-recovery", needsTokenReissue: true };
+  }
+
+  // Backward-compatible path for older agents that had no token yet.
+  if (!binding.tokenHash && fingerprintMatch) {
+    return { matched: true, reason: "legacy-unbound-token", needsTokenReissue: true };
   }
 
   return { matched: false, reason: "mismatch", needsTokenReissue: false };
+}
+
+function normalizeIncomingDeviceIdentity(identity: DeviceIdentityInput): DeviceIdentityInput {
+  return {
+    installId: clean(identity.installId),
+    androidId: normalizeAndroidId(identity.androidId),
+    fingerprint: clean(identity.fingerprint),
+    bindingToken: clean(identity.bindingToken),
+    manufacturer: clean(identity.manufacturer),
+    brand: clean(identity.brand),
+    model: clean(identity.model),
+    sdk: clean(identity.sdk),
+  };
+}
+
+function normalizeAndroidId(value: unknown) {
+  return clean(value).toLowerCase();
+}
+
+function sameIdentityField(left: unknown, right: unknown) {
+  const a = clean(left).toLowerCase();
+  const b = clean(right).toLowerCase();
+  return Boolean(a && b && a === b);
 }
 
 function createDeviceBindingToken() {
@@ -6031,7 +6133,7 @@ function mergeRuntimeSaveChanges(...items: RuntimeSaveChanges[]): RuntimeSaveCha
 function normalizeDeviceBinding(value: any): DeviceBinding | null {
   if (!value) return null;
   const installId = clean(value.installId);
-  const androidId = clean(value.androidId);
+  const androidId = normalizeAndroidId(value.androidId);
   const fingerprint = clean(value.fingerprint);
   if (!installId || !androidId || !fingerprint) return null;
   return {
@@ -6875,6 +6977,44 @@ async function runSelfTest() {
   if (!clientScript.includes("/api/automation/run")) throw new Error("Expected client script to run automation API");
   if (!clientScript.includes("Device Sync Log")) throw new Error("Expected ecosystem UI in client script");
   if (!clientScript.includes("/api/state")) throw new Error("Expected client script to use backend API");
+  if (!policy.controlEndpoint) throw new Error("Expected device policy controlEndpoint for remote phones");
+
+  // Same handset recovery must work without admin Reset ID after reinstall (new installId, no token).
+  const androidContract = state.contracts[0];
+  const enroll = verifyDeviceIdentity(state, androidContract, {
+    installId: "install-original",
+    androidId: "deadbeefandroid01",
+    fingerprint: "fp-test-device",
+    bindingToken: "",
+    manufacturer: "TestCo",
+    brand: "TestBrand",
+    model: "TestPhone",
+    sdk: "35",
+  }, "Self-test enroll");
+  if (!enroll.allowed || !enroll.bindingToken) throw new Error("Expected first sync to enroll identity");
+  const reinstall = verifyDeviceIdentity(state, androidContract, {
+    installId: "install-after-reinstall",
+    androidId: "DEADBEEFANDROID01",
+    fingerprint: "fp-test-device-updated",
+    bindingToken: "",
+    manufacturer: "TestCo",
+    brand: "TestBrand",
+    model: "TestPhone",
+    sdk: "35",
+  }, "Self-test reinstall");
+  if (!reinstall.allowed || !reinstall.bindingToken) throw new Error("Expected Android ID recovery without Reset ID");
+  const otherPhone = verifyDeviceIdentity(state, androidContract, {
+    installId: "install-other-phone",
+    androidId: "cafebabefood0001",
+    fingerprint: "fp-other-phone",
+    bindingToken: "",
+    manufacturer: "OtherCo",
+    brand: "OtherBrand",
+    model: "OtherPhone",
+    sdk: "34",
+  }, "Self-test foreign handset");
+  if (otherPhone.allowed) throw new Error("Expected different physical handset to be blocked until Reset ID");
+
   console.log(
     JSON.stringify(
       {
@@ -6888,6 +7028,8 @@ async function runSelfTest() {
         dispatchedNotices: dispatch.sent,
         deviceEvents: ecosystem.deviceEvents,
         dashboardBytes: dashboard.length,
+        identityRecovery: true,
+        controlEndpoint: policy.controlEndpoint,
       },
       null,
       2

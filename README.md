@@ -211,9 +211,17 @@ Phones must reach a **public HTTPS** control URL, not a laptop LAN IP. Configure
 KISMART_PUBLIC_BASE_URL=https://kismartsystem.vercel.app
 KISMART_STORAGE=firestore
 KISMART_DEVICE_SYNC_SECRET=4321
+KISMART_FIRESTORE_DATABASE=
 ```
 
-Deploy this backend to that public host (Vercel is already wired via `api/index.js` + `vercel.json`). Admin dashboard and phones must share the same Firestore data so lock/restore commands issued in the dashboard are seen by phones on mobile data or other Wi-Fi.
+Deploy this backend to that public host (Vercel is already wired via `api/index.js` + `vercel.json`). **Admin dashboard and phones must share the same Firestore data** so lock/restore commands issued in the dashboard are seen by phones on mobile data or other Wi-Fi. Ephemeral JSON on Vercel cannot do that.
+
+Before remote lock works in production:
+
+1. In Firebase Console for `kismart-456ee`, create a **Firestore Native** database (system default).
+2. Set Vercel env vars: `KISMART_STORAGE=firestore`, `KISMART_DEVICE_SYNC_SECRET=4321`, `KISMART_PUBLIC_BASE_URL=https://kismartsystem.vercel.app`, plus Firebase credentials (`FIREBASE_SERVICE_ACCOUNT_JSON` or the bundled service-account file).
+3. Confirm `GET /api/health` returns `"storage":"firestore"` and `"remoteReady":true`.
+4. Install the latest agent APK; default backend URL is the public HTTPS host and secret is `4321`.
 
 Health check:
 
@@ -221,7 +229,9 @@ Health check:
 GET /api/health
 ```
 
-Device identity: the first trusted sync binds the contract to the handset **Android ID**. Reinstalls on the same phone re-bind automatically. **Reset ID** is only for a different physical handset (or factory reset that changes Android ID).
+Device identity: the first trusted sync binds the contract to the handset **Android ID**. Reinstalls on the same phone re-bind automatically without admin Reset ID. **Reset ID** is only for a different physical handset (or a rare factory reset that changes Android ID).
+
+Admin **Restore** is sticky: automatic arrears limiting will not immediately re-lock the phone until admin applies Limit/Lock again (or arrears clear and later re-accumulate under automation rules).
 
 ## Production Notes
 
