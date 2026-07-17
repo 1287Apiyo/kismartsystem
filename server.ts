@@ -277,14 +277,21 @@ const IOS_MDM_PROVIDER = normalizeIosMdmProviderName(process.env.KISMART_IOS_MDM
 const IOS_MDM_WEBHOOK_URL = clean(process.env.KISMART_IOS_MDM_WEBHOOK_URL);
 const IOS_MDM_WEBHOOK_TOKEN = clean(process.env.KISMART_IOS_MDM_WEBHOOK_TOKEN);
 const PAYBILL_ENABLED = (process.env.KISMART_PAYBILL_ENABLED || "false").toLowerCase() === "true";
+const ALLOW_FAKE_STK = (process.env.KISMART_ALLOW_FAKE_STK || "false").toLowerCase() === "true";
 const PAYBILL_BUSINESS_NUMBER = clean(process.env.KISMART_PAYBILL_BUSINESS_NUMBER || "400200");
 const PAYBILL_ACCOUNT_NUMBER = clean(process.env.KISMART_PAYBILL_ACCOUNT_NUMBER || "1171170");
 const PAYBILL_BUSINESS_NAME = clean(process.env.KISMART_PAYBILL_BUSINESS_NAME || "KISMART GLOBAL");
 const PAYBILL_API_KEY = clean(process.env.KISMART_PAYBILL_API_KEY);
 const PAYBILL_API_SECRET = clean(process.env.KISMART_PAYBILL_API_SECRET);
 const PAYBILL_PASSKEY = clean(process.env.KISMART_PAYBILL_PASSKEY);
-const PAYBILL_CALLBACK_URL = clean(process.env.KISMART_PAYBILL_CALLBACK_URL);
+const PAYBILL_CALLBACK_URL = clean(
+  process.env.KISMART_PAYBILL_CALLBACK_URL ||
+    (process.env.KISMART_PUBLIC_BASE_URL
+      ? `${String(process.env.KISMART_PUBLIC_BASE_URL).replace(/\/$/, "")}/api/payments/paybill-callback`
+      : "")
+);
 const MPESA_API_BASE_URL = (process.env.KISMART_MPESA_API_BASE_URL || "https://api.safaricom.co.ke").replace(/\/$/, "");
+const MPESA_CONFIGURED = Boolean(PAYBILL_ENABLED && PAYBILL_API_KEY && PAYBILL_API_SECRET && PAYBILL_PASSKEY && PAYBILL_BUSINESS_NUMBER && PAYBILL_CALLBACK_URL);
 const DEFAULT_PAYMENT_APP_PACKAGES = ["com.safaricom.mpesa", "com.safaricom.mpesa.lifestyle", "ke.co.safaricom.mpesa"];
 const PAYMENT_APP_PACKAGES = paymentAppPackagesFromEnv(process.env.KISMART_PAYMENT_APP_PACKAGES);
 const ANDROID_AGENT_PACKAGE = "africa.volo.kismart.agent";
@@ -678,8 +685,15 @@ async function routeRequest(request: any, response: any) {
   }
 
   if (method === "POST" && ["/api/payments/mpesa-callback", "/api/payments/airtel-callback"].includes(url.pathname)) {
-    assertCallbackSecret(request);
     const body = await readJson(request);
+
+    // Accept native Safaricom Lipa Na M-Pesa Online (STK) callbacks on the generic M-Pesa route too.
+    if (url.pathname.includes("mpesa")) {
+      const stkHandled = await handleMpesaStkCallback(body, response);
+      if (stkHandled) return;
+    }
+
+    assertCallbackSecret(request);
     const state = await loadState();
     const contract = resolveContractForCallback(state, body);
     if (!contract) {
@@ -720,77 +734,11 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
-  // PayBill callback endpoint - handles real M-Pesa payment confirmations
+  // PayBill callback endpoint - handles real M-Pesa STK + C2B payment confirmations
   if (method === "POST" && url.pathname === "/api/payments/paybill-callback") {
     const body = await readJson(request);
-    const stk = parseMpesaStkCallback(body);
-
-    if (stk) {
-      // Safaricom STK Push callback structure detected
-      const state = await loadState();
-      const contract = resolveContractByMpesaReference(state, stk.checkoutRequestId);
-      if (!contract) {
-        state.syncEvents.unshift({
-          id: uid("SYNC"),
-          time: nowIso(),
-          contractId: "UNKNOWN",
-          provider: "M-Pesa STK",
-          reference: stk.checkoutRequestId,
-          status: "Failed",
-          message: `STK callback received but no matching contract found for CheckoutID: ${stk.checkoutRequestId}`,
-        });
-        await saveState(state);
-        sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Unmatched)" });
-        return;
-      }
-
-      if (stk.resultCode !== 0) {
-        state.syncEvents.unshift({
-          id: uid("SYNC"),
-          time: nowIso(),
-          contractId: contract.id,
-          provider: "M-Pesa STK",
-          reference: stk.checkoutRequestId,
-          status: "Failed",
-          message: `STK Push cancelled or failed: ${stk.resultDesc} (${stk.resultCode})`,
-        });
-        await saveState(state);
-        sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Failure recorded)" });
-        return;
-      }
-
-      // Successful STK Push payment
-      const existingPayment = findPaymentByReference(state, stk.receiptNumber, "M-Pesa");
-      if (existingPayment) {
-        sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Duplicate)" });
-        return;
-      }
-
-      const payment = addPayment(contract, {
-        amount: stk.amount,
-        method: "M-Pesa",
-        reference: stk.receiptNumber,
-        date: todayIso(),
-        status: "Synced",
-      });
-      state.syncEvents.unshift({
-        id: uid("SYNC"),
-        time: nowIso(),
-        contractId: contract.id,
-        provider: "M-Pesa STK",
-        reference: stk.checkoutRequestId,
-        status: "Synced",
-        message: `STK Push payment confirmed - ${stk.receiptNumber} for ${formatKes(stk.amount)}`,
-      });
-      const automaticControls = applyAutomaticPaymentControls(state, [contract]);
-      if (automaticControls.changed) {
-        await dispatchPendingDeviceCommands(state, 25);
-      }
-      addAudit(state, "System", "STK Push payment confirmed", `${contract.id} - ${formatKes(payment.amount)} (${stk.receiptNumber})`);
-      await saveState(state);
-      sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success" });
-      return;
-    }
+    const stkHandled = await handleMpesaStkCallback(body, response);
+    if (stkHandled) return;
 
     // Normal PayBill (C2B) callback handling
     assertCallbackSecret(request);
@@ -1045,8 +993,15 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  // Fake STK test endpoint — disabled in production unless KISMART_ALLOW_FAKE_STK=true.
   const deviceStkTestMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/stk-test$/);
   if (method === "POST" && deviceStkTestMatch) {
+    if (!ALLOW_FAKE_STK) {
+      throw new HttpError(
+        403,
+        "Simulated STK payments are disabled. Use the real M-Pesa PayBill STK endpoint (/paybill-stk) or set KISMART_ALLOW_FAKE_STK=true for local testing only."
+      );
+    }
     assertDeviceSecret(request);
     const body = await readJson(request);
     const state = await loadState();
@@ -1078,7 +1033,7 @@ async function routeRequest(request: any, response: any) {
       provider: "M-Pesa STK Test",
       reference,
       status: "Synced",
-      message: `${formatKes(amount)} fake STK payment recorded from KISMART agent`,
+      message: `${formatKes(amount)} fake STK payment recorded from KISMART agent (dev only)`,
     });
     recordDeviceEvent(state, contract, "Heartbeat", "Online", `Fake STK payment prompt completed for ${formatKes(amount)}`, {
       appVersion: clean(body.appVersion || "unknown"),
@@ -1093,7 +1048,7 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
-  // PayBill STK Push endpoint - real M-Pesa payment integration
+  // Real M-Pesa Lipa Na M-Pesa Online (STK Push) for device Pay button
   const devicePaybillMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/paybill-stk$/);
   if (method === "POST" && devicePaybillMatch) {
     assertDeviceSecret(request);
@@ -1107,22 +1062,32 @@ async function routeRequest(request: any, response: any) {
       return;
     }
     if (!PAYBILL_ENABLED) {
-      throw new HttpError(503, "PayBill integration is not enabled. Enable KISMART_PAYBILL_ENABLED in environment.");
+      throw new HttpError(503, "M-Pesa PayBill integration is not enabled. Set KISMART_PAYBILL_ENABLED=true.");
+    }
+    if (!MPESA_CONFIGURED) {
+      throw new HttpError(
+        503,
+        "M-Pesa production credentials are incomplete. Set KISMART_PAYBILL_API_KEY, KISMART_PAYBILL_API_SECRET, KISMART_PAYBILL_PASSKEY, KISMART_PAYBILL_BUSINESS_NUMBER, and KISMART_PAYBILL_CALLBACK_URL."
+      );
     }
     const progress = getProgress(contract);
     const fallbackAmount = progress.arrears > 0 ? progress.arrears : Math.min(progress.balance, progress.nextAmount || contract.plan.installment || 1000);
-    const amount = Math.min(progress.balance, Math.max(100, Math.round(numberFrom(body.amount, fallbackAmount))));
-    if (amount <= 0) {
+    const amount = Math.min(progress.balance, Math.max(1, Math.round(numberFrom(body.amount, fallbackAmount))));
+    if (amount <= 0 || progress.balance <= 0) {
       throw new HttpError(400, "No outstanding balance is available for payment");
     }
 
     const phoneNumber = clean(body.phoneNumber || contract.customer.phone);
+    if (!formatMpesaPhone(phoneNumber) || formatMpesaPhone(phoneNumber).length < 12) {
+      throw new HttpError(400, "A valid Kenyan M-Pesa phone number is required (e.g. 07XXXXXXXX or 2547XXXXXXXX).");
+    }
+    // AccountReference max 12 chars on Daraja; use contract id so callbacks map cleanly.
+    const accountReference = clean(contract.id).slice(0, 12) || PAYBILL_ACCOUNT_NUMBER.slice(0, 12);
     const reference = clean(body.reference || uid("PAYBILL"));
 
-    // Initiate real M-Pesa STK push using Safaricom API
     let stkResult: any;
     try {
-      stkResult = await initiateMpesaStkPush(phoneNumber, amount, PAYBILL_ACCOUNT_NUMBER);
+      stkResult = await initiateMpesaStkPush(phoneNumber, amount, accountReference);
     } catch (error) {
       state.syncEvents.unshift({
         id: uid("SYNC"),
@@ -1137,7 +1102,23 @@ async function routeRequest(request: any, response: any) {
       throw error;
     }
 
-    const checkoutRequestId = stkResult.CheckoutRequestID || reference;
+    const responseCode = String(stkResult?.ResponseCode ?? "");
+    if (responseCode && responseCode !== "0") {
+      const detail = clean(stkResult?.ResponseDescription || stkResult?.errorMessage || "STK Push rejected by Safaricom");
+      state.syncEvents.unshift({
+        id: uid("SYNC"),
+        time: nowIso(),
+        contractId: contract.id,
+        provider: "M-Pesa PayBill",
+        reference: clean(stkResult?.CheckoutRequestID || reference),
+        status: "Failed",
+        message: `PayBill STK rejected: ${detail}`,
+      });
+      await saveState(state);
+      throw new HttpError(502, `M-Pesa STK Push rejected: ${detail}`);
+    }
+
+    const checkoutRequestId = clean(stkResult.CheckoutRequestID || reference);
     state.syncEvents.unshift({
       id: uid("SYNC"),
       time: nowIso(),
@@ -1145,27 +1126,28 @@ async function routeRequest(request: any, response: any) {
       provider: "M-Pesa PayBill",
       reference: checkoutRequestId,
       status: "Pending",
-      message: `PayBill STK prompt initiated - ${PAYBILL_BUSINESS_NUMBER}/${PAYBILL_ACCOUNT_NUMBER} for ${formatKes(amount)} on ${phoneNumber}`,
+      message: `PayBill STK prompt initiated - shortcode ${PAYBILL_BUSINESS_NUMBER} account ${accountReference} for ${formatKes(amount)} on ${formatMpesaPhone(phoneNumber)}`,
     });
-    recordDeviceEvent(state, contract, "Heartbeat", "Online", `PayBill STK prompt initiated for ${formatKes(amount)} to ${phoneNumber}`, {
+    recordDeviceEvent(state, contract, "Heartbeat", "Online", `PayBill STK prompt initiated for ${formatKes(amount)} to ${formatMpesaPhone(phoneNumber)}`, {
       appVersion: clean(body.appVersion || "unknown"),
       reference: checkoutRequestId,
       amount,
-      phoneNumber,
+      phoneNumber: formatMpesaPhone(phoneNumber),
       paybillNumber: PAYBILL_BUSINESS_NUMBER,
-      accountNumber: PAYBILL_ACCOUNT_NUMBER,
+      accountNumber: accountReference,
       identity: "verified",
     });
-    addAudit(state, "Device Agent", "PayBill STK initiated", `${contract.id} - ${formatKes(amount)} to ${phoneNumber} (CheckoutID: ${checkoutRequestId})`);
+    addAudit(state, "Device Agent", "PayBill STK initiated", `${contract.id} - ${formatKes(amount)} to ${formatMpesaPhone(phoneNumber)} (CheckoutID: ${checkoutRequestId})`);
     await saveState(state);
     sendJson(response, 202, {
-      message: "PayBill STK prompt sent. Waiting for customer to confirm on M-Pesa.",
+      message: "M-Pesa STK prompt sent. Enter your M-Pesa PIN on the phone to complete payment.",
       reference: checkoutRequestId,
       amount,
-      phoneNumber,
+      phoneNumber: formatMpesaPhone(phoneNumber),
       paybill: PAYBILL_BUSINESS_NUMBER,
-      account: PAYBILL_ACCOUNT_NUMBER,
-      stkResult,
+      account: accountReference,
+      merchantRequestId: clean(stkResult.MerchantRequestID || ""),
+      customerMessage: clean(stkResult.CustomerMessage || ""),
     });
     return;
   }
@@ -4205,7 +4187,9 @@ function polarPoint(cx, cy, radius, angle) {
 }
 
 function paymentRails() {
-  return '<div class="pipeline"><div class="pipeline-row"><strong>M-Pesa</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 94%"></div></div>' + badge("Ready") + '</div><div class="pipeline-row"><strong>Airtel Money</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 90%"></div></div>' + badge("Ready") + '</div><div class="pipeline-row"><strong>Idempotency</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 100%"></div></div>' + badge("Ready") + '</div><div class="queue-row"><div><strong>Callback routes</strong><p>/api/payments/mpesa-callback and /api/payments/airtel-callback</p></div>' + badge("Ready") + '</div></div>';
+  const mpesaStatus = MPESA_CONFIGURED ? "Ready" : PAYBILL_ENABLED ? "Attention" : "Blocked";
+  const mpesaFill = MPESA_CONFIGURED ? "100%" : PAYBILL_ENABLED ? "70%" : "35%";
+  return '<div class="pipeline"><div class="pipeline-row"><strong>M-Pesa (Prod PayBill ' + e(PAYBILL_BUSINESS_NUMBER) + ')</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: ' + mpesaFill + '"></div></div>' + badge(mpesaStatus) + '</div><div class="pipeline-row"><strong>Airtel Money</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 90%"></div></div>' + badge("Ready") + '</div><div class="pipeline-row"><strong>Idempotency</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 100%"></div></div>' + badge("Ready") + '</div><div class="queue-row"><div><strong>Callback routes</strong><p>/api/payments/paybill-callback, /api/payments/mpesa-callback, /api/payments/airtel-callback</p></div>' + badge(MPESA_CONFIGURED ? "Ready" : "Attention") + '</div><div class="queue-row"><div><strong>Simulated STK</strong><p>' + (ALLOW_FAKE_STK ? "ENABLED (dev only — turn off for production)" : "Disabled — real Daraja STK Push only") + '</p></div>' + badge(ALLOW_FAKE_STK ? "Attention" : "Ready") + '</div></div>';
 }
 
 function readinessList() {
@@ -4283,7 +4267,7 @@ function healthLabel(score) {
 }
 
 function apiSurface() {
-  const routes = ["/api/events", "/api/state", "/api/contracts", "/api/contracts/:id", "/api/inventory-devices", "/api/inventory-devices/:id", "/api/intakes/:id", "/api/contracts/:id/payments", "/api/contracts/:id/warnings", "/api/contracts/:id/restrictions", "/api/automation/run", "/api/notifications/dispatch", "/api/device-commands/dispatch", "/api/devices/:imei/policy", "/api/devices/:imei/sync", "/api/devices/:imei/tamper", "/api/payments/mpesa-callback", "/api/payments/airtel-callback", "/api/reports/summary", "/api/readiness"];
+  const routes = ["/api/events", "/api/state", "/api/contracts", "/api/contracts/:id", "/api/inventory-devices", "/api/inventory-devices/:id", "/api/intakes/:id", "/api/contracts/:id/payments", "/api/contracts/:id/warnings", "/api/contracts/:id/restrictions", "/api/automation/run", "/api/notifications/dispatch", "/api/device-commands/dispatch", "/api/devices/:imei/policy", "/api/devices/:imei/sync", "/api/devices/:imei/tamper", "/api/devices/:imei/paybill-stk", "/api/payments/mpesa-callback", "/api/payments/paybill-callback", "/api/payments/airtel-callback", "/api/reports/summary", "/api/readiness"];
   return '<div class="table-wrap"><table><thead><tr><th>Route</th><th>Purpose</th></tr></thead><tbody>' + routes.map(function (route) {
     return '<tr><td>' + e(route) + '</td><td>' + e(routePurpose(route)) + '</td></tr>';
   }).join("") + '</tbody></table></div>';
@@ -5187,6 +5171,102 @@ function parseMpesaStkCallback(body: any) {
   };
 }
 
+/**
+ * Handles Safaricom STK Push result callbacks.
+ * Returns true when the body was an STK callback (whether payment succeeded or failed).
+ * Always acknowledges with ResultCode 0 so Safaricom does not keep retrying.
+ */
+async function handleMpesaStkCallback(body: any, response: any): Promise<boolean> {
+  const stk = parseMpesaStkCallback(body);
+  if (!stk) return false;
+
+  const state = await loadState();
+  let contract = resolveContractByMpesaReference(state, stk.checkoutRequestId);
+  if (!contract && stk.phoneNumber) {
+    const phone = formatMpesaPhone(String(stk.phoneNumber));
+    contract =
+      state.contracts.find((c) => formatMpesaPhone(c.customer.phone) === phone) ||
+      null;
+  }
+
+  if (!contract) {
+    state.syncEvents.unshift({
+      id: uid("SYNC"),
+      time: nowIso(),
+      contractId: "UNKNOWN",
+      provider: "M-Pesa STK",
+      reference: stk.checkoutRequestId || stk.receiptNumber || "UNKNOWN",
+      status: "Failed",
+      message: `STK callback received but no matching contract found for CheckoutID: ${stk.checkoutRequestId}`,
+    });
+    await saveState(state);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Unmatched)" });
+    return true;
+  }
+
+  if (stk.resultCode !== 0) {
+    state.syncEvents.unshift({
+      id: uid("SYNC"),
+      time: nowIso(),
+      contractId: contract.id,
+      provider: "M-Pesa STK",
+      reference: stk.checkoutRequestId,
+      status: "Failed",
+      message: `STK Push cancelled or failed: ${stk.resultDesc} (${stk.resultCode})`,
+    });
+    await saveState(state);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Failure recorded)" });
+    return true;
+  }
+
+  const receipt = clean(stk.receiptNumber || stk.checkoutRequestId);
+  if (!receipt) {
+    state.syncEvents.unshift({
+      id: uid("SYNC"),
+      time: nowIso(),
+      contractId: contract.id,
+      provider: "M-Pesa STK",
+      reference: stk.checkoutRequestId,
+      status: "Failed",
+      message: "STK success callback missing MpesaReceiptNumber",
+    });
+    await saveState(state);
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Missing receipt)" });
+    return true;
+  }
+
+  const existingPayment = findPaymentByReference(state, receipt, "M-Pesa");
+  if (existingPayment) {
+    sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success (Duplicate)" });
+    return true;
+  }
+
+  const payment = addPayment(contract, {
+    amount: stk.amount,
+    method: "M-Pesa",
+    reference: receipt,
+    date: todayIso(),
+    status: "Synced",
+  });
+  state.syncEvents.unshift({
+    id: uid("SYNC"),
+    time: nowIso(),
+    contractId: contract.id,
+    provider: "M-Pesa STK",
+    reference: stk.checkoutRequestId || receipt,
+    status: "Synced",
+    message: `STK Push payment confirmed - ${receipt} for ${formatKes(stk.amount)}`,
+  });
+  const automaticControls = applyAutomaticPaymentControls(state, [contract]);
+  if (automaticControls.changed) {
+    await dispatchPendingDeviceCommands(state, 25);
+  }
+  addAudit(state, "System", "STK Push payment confirmed", `${contract.id} - ${formatKes(payment.amount)} (${receipt})`);
+  await saveState(state);
+  sendJson(response, 200, { ResultCode: 0, ResultDesc: "Success" });
+  return true;
+}
+
 function queueReminder(state: AppState, contract: Contract, type: string): NotificationRecord {
   const progress = getProgress(contract);
   const message =
@@ -5915,6 +5995,9 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
     controlEndpoint: PUBLIC_BASE_URL,
     contractId: contract.id,
     customer: contract.customer.name,
+    customerPhone: contract.customer.phone,
+    paybillNumber: PAYBILL_BUSINESS_NUMBER,
+    mpesaReady: MPESA_CONFIGURED,
     imei: contract.device.imei,
     serial: contract.device.serial,
     model: contract.device.model,
@@ -6424,9 +6507,18 @@ function getReadiness(state: AppState) {
       detail: "M-Pesa and Airtel Money callbacks support idempotent allocation by transaction reference.",
     },
     {
+      title: "M-Pesa production STK",
+      status: MPESA_CONFIGURED ? "Ready" : PAYBILL_ENABLED ? "Attention" : "Blocked",
+      detail: MPESA_CONFIGURED
+        ? `PayBill ${PAYBILL_BUSINESS_NUMBER} is configured against ${MPESA_API_BASE_URL}. Fake STK is ${ALLOW_FAKE_STK ? "ON (disable for production)" : "off"}.`
+        : "Set KISMART_PAYBILL_ENABLED plus Consumer Key/Secret, Passkey, shortcode, and HTTPS callback URL.",
+    },
+    {
       title: "Callback signing",
       status: CALLBACK_SECRET ? "Ready" : "Attention",
-      detail: CALLBACK_SECRET ? "Provider callbacks require the configured shared secret." : "Set KISMART_CALLBACK_SECRET before exposing callbacks publicly.",
+      detail: CALLBACK_SECRET
+        ? "Generic provider callbacks can use the shared secret. Safaricom STK result callbacks use the STK payload path."
+        : "Set KISMART_CALLBACK_SECRET for non-STK provider callbacks exposed publicly.",
     },
     {
       title: "Warning workflow",
@@ -6708,7 +6800,14 @@ function requiresAdminAuth(pathname: string) {
   if (pathname === "/api/health") return false;
   if (pathname.startsWith("/api/auth/")) return false;
   if (pathname.startsWith("/api/devices/")) return false;
-  if (pathname === "/api/payments/mpesa-callback" || pathname === "/api/payments/airtel-callback") return false;
+  // Payment provider callbacks must be reachable without an admin session.
+  if (
+    pathname === "/api/payments/mpesa-callback" ||
+    pathname === "/api/payments/airtel-callback" ||
+    pathname === "/api/payments/paybill-callback"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -6735,22 +6834,39 @@ async function getMpesaAccessToken() {
 }
 
 async function initiateMpesaStkPush(phoneNumber: string, amount: number, accountReference: string) {
+  if (!PAYBILL_API_KEY || !PAYBILL_API_SECRET) {
+    throw new Error("M-Pesa Consumer Key/Secret are not configured");
+  }
+  if (!PAYBILL_PASSKEY) {
+    throw new Error("M-Pesa Lipa Na M-Pesa Online Passkey is not configured");
+  }
+  if (!PAYBILL_CALLBACK_URL) {
+    throw new Error("M-Pesa CallBackURL is not configured (KISMART_PAYBILL_CALLBACK_URL)");
+  }
+  if (!PAYBILL_CALLBACK_URL.startsWith("https://")) {
+    throw new Error("M-Pesa CallBackURL must be a public HTTPS URL");
+  }
+
   const accessToken = await getMpesaAccessToken();
-  const timestamp = new Date().toISOString().replace(/[-:T]/g, "").split(".")[0];
+  // Daraja password timestamp must be YYYYMMDDHHmmss in East Africa Time (UTC+3).
+  const timestamp = mpesaTimestampEAT();
   const password = Buffer.from(`${PAYBILL_BUSINESS_NUMBER}${PAYBILL_PASSKEY}${timestamp}`).toString("base64");
+  const msisdn = formatMpesaPhone(phoneNumber);
+  const cleanAccountRef = clean(accountReference).slice(0, 12) || "KISMART";
 
   const body = {
     BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
     Password: password,
     Timestamp: timestamp,
     TransactionType: "CustomerPayBillOnline",
-    Amount: amount,
-    PartyA: formatMpesaPhone(phoneNumber),
+    Amount: Math.max(1, Math.round(amount)),
+    PartyA: msisdn,
     PartyB: PAYBILL_BUSINESS_NUMBER,
-    PhoneNumber: formatMpesaPhone(phoneNumber),
-    CallBackURL: CALLBACK_SECRET ? `${PAYBILL_CALLBACK_URL}?secret=${CALLBACK_SECRET}` : PAYBILL_CALLBACK_URL,
-    AccountReference: accountReference,
-    TransactionDesc: `Payment for ${accountReference}`,
+    PhoneNumber: msisdn,
+    // STK result callbacks are validated by payload structure, not shared secret.
+    CallBackURL: PAYBILL_CALLBACK_URL,
+    AccountReference: cleanAccountRef,
+    TransactionDesc: `KISMART ${cleanAccountRef}`.slice(0, 13),
   };
 
   const response = await fetch(`${MPESA_API_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
@@ -6762,22 +6878,46 @@ async function initiateMpesaStkPush(phoneNumber: string, amount: number, account
     body: JSON.stringify(body),
   });
 
+  const raw = await response.text();
+  let data: any = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = { raw };
+  }
   if (!response.ok) {
-    const error = await response.text();
+    const error = clean(data.errorMessage || data.ResponseDescription || raw || `HTTP ${response.status}`);
     throw new Error(`STK Push failed: ${error}`);
   }
 
-  return await response.json();
+  return data;
 }
 
 function formatMpesaPhone(phone: string) {
-  let cleaned = phone.replace(/\D/g, "");
+  let cleaned = String(phone || "").replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
     cleaned = "254" + cleaned.substring(1);
-  } else if (cleaned.length === 9) {
+  } else if (cleaned.startsWith("7") && cleaned.length === 9) {
     cleaned = "254" + cleaned;
+  } else if (cleaned.startsWith("1") && cleaned.length === 9) {
+    cleaned = "254" + cleaned;
+  } else if (cleaned.startsWith("+")) {
+    cleaned = cleaned.replace(/^\+/, "");
   }
   return cleaned;
+}
+
+/** YYYYMMDDHHmmss for Lipa Na M-Pesa Online password, using Africa/Nairobi (UTC+3). */
+function mpesaTimestampEAT() {
+  const eat = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return (
+    eat.getUTCFullYear().toString() +
+    String(eat.getUTCMonth() + 1).padStart(2, "0") +
+    String(eat.getUTCDate()).padStart(2, "0") +
+    String(eat.getUTCHours()).padStart(2, "0") +
+    String(eat.getUTCMinutes()).padStart(2, "0") +
+    String(eat.getUTCSeconds()).padStart(2, "0")
+  );
 }
 
 

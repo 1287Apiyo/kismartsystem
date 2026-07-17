@@ -171,7 +171,24 @@ The installable Android pilot APK is in:
 
 Use it to test device policy sync, Device Admin activation, lock commands, restore commands, and tamper alerts against this backend.
 
-`Limit` sends strict KISMART-only mode to the Android agent. In Android Device Owner mode the agent keeps KISMART available, disables risky settings paths, enters lock-task mode, and suspends other launchable user apps until **Restore**. The agent's in-app **Pay** button can show a fake M-Pesa STK prompt for testing and record a test payment without opening external phone apps.
+`Limit` sends strict KISMART-only mode to the Android agent. In Android Device Owner mode the agent keeps KISMART available, disables risky settings paths, enters lock-task mode, and suspends other launchable user apps until **Restore**. The agent's in-app **Pay** button starts a **real M-Pesa STK Push** (Lipa Na M-Pesa Online) against your production PayBill. Payment is only applied after Safaricom posts the STK result callback. Fake STK (`/api/devices/:imei/stk-test`) is disabled unless `KISMART_ALLOW_FAKE_STK=true`.
+
+### M-Pesa production (Daraja)
+
+Set these on the production host (for example Vercel environment variables):
+
+```text
+KISMART_PAYBILL_ENABLED=true
+KISMART_PAYBILL_BUSINESS_NUMBER=4749801
+KISMART_PAYBILL_API_KEY=...
+KISMART_PAYBILL_API_SECRET=...
+KISMART_PAYBILL_PASSKEY=...
+KISMART_PAYBILL_CALLBACK_URL=https://kismartsystem.vercel.app/api/payments/paybill-callback
+KISMART_MPESA_API_BASE_URL=https://api.safaricom.co.ke
+KISMART_ALLOW_FAKE_STK=false
+```
+
+Register the same callback URL in the Daraja app for STK result notifications. Use **production** host `https://api.safaricom.co.ke` (not sandbox).
 
 Configured payment packages:
 
@@ -179,7 +196,7 @@ Configured payment packages:
 KISMART_PAYMENT_APP_PACKAGES=com.safaricom.mpesa,com.safaricom.mpesa.lifestyle,ke.co.safaricom.mpesa
 ```
 
-The payment package list is kept for normal payment launching outside strict KISMART-only mode. It is not allowlisted while `KISMART only` is active.
+The payment package list is kept for normal payment launching outside strict KISMART-only mode. It is not allowlisted while `KISMART only` is active. STK Push does not require opening the M-Pesa app.
 
 ## Core APIs
 
@@ -189,7 +206,8 @@ The payment package list is kept for normal payment launching outside strict KIS
 - `DELETE /api/contracts/:id` - delete a contract after admin confirmation
 - `DELETE /api/intakes/:id` - delete a pending customer intake after admin confirmation
 - `POST /api/contracts/:id/payments` - record payment
-- `POST /api/payments/mpesa-callback` - reconcile M-Pesa callback
+- `POST /api/payments/mpesa-callback` - reconcile M-Pesa callback (also accepts native STK result payloads)
+- `POST /api/payments/paybill-callback` - production STK + PayBill callback from Safaricom
 - `POST /api/payments/airtel-callback` - reconcile Airtel Money callback
 - `POST /api/contracts/:id/warnings` - queue warning notice
 - `POST /api/contracts/:id/restrictions` - apply device restriction
@@ -199,6 +217,7 @@ The payment package list is kept for normal payment launching outside strict KIS
 - `POST /api/device-commands/dispatch` - dispatch pending Apple MDM commands or simulate them locally
 - `GET /api/devices/:imei/policy` - return phone-side policy, balance, arrears, and restriction state
 - `POST /api/devices/:imei/sync` - acknowledge pending device commands from the phone agent
+- `POST /api/devices/:imei/paybill-stk` - start real M-Pesa STK Push for the bound device
 - `POST /api/devices/:imei/tamper` - report device-agent tamper or app-removal attempts
 - `GET /api/reports/summary` - portfolio metrics
 - `GET /api/export/contracts.csv` - contract export
