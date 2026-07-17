@@ -232,7 +232,7 @@ loadLocalEnvFile(join(__dirname, ".env"));
 const DATA_DIR = process.env.VERCEL ? join(tmpdir(), "kismart-data") : join(__dirname, "data");
 const DATA_FILE = join(DATA_DIR, "kismart-state.json");
 const PORT = Number(process.env.KISMART_PORT || 8787);
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 const SHOP_NAME = process.env.KISMART_SHOP_NAME || "KISMART Global";
 const CALLBACK_SECRET = process.env.KISMART_CALLBACK_SECRET || "";
 const DEVICE_SYNC_SECRET = process.env.KISMART_DEVICE_SYNC_SECRET || "";
@@ -4371,19 +4371,41 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
 }
 
 /**
- * Re-read one contract from Firestore so device limit decisions use the latest paid/balance fields.
+ * Re-read one contract from shared storage so device limit decisions use the latest paid/balance fields.
  */
 async function refreshContractFromStorage(state: AppState, contractId: string) {
   if (!isFirestoreStorage() || !contractId) return;
   try {
-    const firestore = getFirestoreDb();
+    // Single-doc mode: reload full state cheaply (1 read) and replace the contract.
     const snapshot = await withTimeout(
+      getFirestoreStateDoc().get(),
+      FIRESTORE_OPERATION_TIMEOUT_MS,
+      "Firestore contract refresh timed out"
+    );
+    if (snapshot.exists) {
+      const data = snapshot.data() || {};
+      const remote = data.state || (looksLikeAppState(data) ? data : null);
+      if (remote?.contracts) {
+        const found = normalizeState(remote as AppState).contracts.find((c) => c.id === contractId);
+        if (found) {
+          const index = state.contracts.findIndex((item) => item.id === contractId);
+          if (index >= 0) state.contracts[index] = found;
+          else state.contracts.unshift(found);
+          cachedState = state;
+          return;
+        }
+      }
+    }
+
+    // Fallback: collection mirror (optional/legacy).
+    const firestore = getFirestoreDb();
+    const contractSnap = await withTimeout(
       firestore.collection(FIRESTORE_RECORD_COLLECTIONS.contracts).doc(contractId).get(),
       FIRESTORE_OPERATION_TIMEOUT_MS,
       "Firestore contract refresh timed out"
     );
-    if (!snapshot.exists) return;
-    const raw = { id: snapshot.id, ...(snapshot.data() || {}) } as Contract;
+    if (!contractSnap.exists) return;
+    const raw = { id: contractSnap.id, ...(contractSnap.data() || {}) } as Contract;
     const normalized = normalizeState({
       ...state,
       contracts: [raw],
@@ -4444,7 +4466,7 @@ function queueDeviceRuntimeSave(
 
 async function saveDeviceRuntimeChanges(
   state: AppState,
-  changes: RuntimeSaveChanges
+  _changes: RuntimeSaveChanges
 ) {
   if (!isFirestoreStorage()) {
     await saveJsonState(state);
@@ -4452,67 +4474,8 @@ async function saveDeviceRuntimeChanges(
   }
 
   try {
-    const firestore = getFirestoreDb();
-    const contractsById = new Map(state.contracts.map((contract) => [contract.id, contract]));
-    const notificationsById = new Map(state.notifications.map((notice) => [notice.id, notice]));
-    const syncEventsById = new Map(state.syncEvents.map((event) => [event.id, event]));
-    const deviceEventsById = new Map(state.deviceEvents.map((event) => [event.id, event]));
-    const auditById = new Map(state.audit.map((event) => [event.id, event]));
-    const operations: ((batch: any) => void)[] = [];
-
-    uniqueIds(changes.contractIds || []).forEach((id) => {
-      const contract = contractsById.get(id);
-      if (contract) {
-        operations.push((batch) => batch.set(
-          firestore.collection(FIRESTORE_RECORD_COLLECTIONS.contracts).doc(id),
-          toFirestoreRecord(contract)
-        ));
-      }
-    });
-
-    uniqueIds(changes.notificationIds || []).forEach((id) => {
-      const notice = notificationsById.get(id);
-      if (notice) {
-        operations.push((batch) => batch.set(
-          firestore.collection(FIRESTORE_RECORD_COLLECTIONS.notifications).doc(id),
-          toFirestoreRecord(notice)
-        ));
-      }
-    });
-
-    uniqueIds(changes.syncEventIds || []).forEach((id) => {
-      const event = syncEventsById.get(id);
-      if (event) {
-        operations.push((batch) => batch.set(
-          firestore.collection(FIRESTORE_RECORD_COLLECTIONS.syncEvents).doc(id),
-          toFirestoreRecord(event)
-        ));
-      }
-    });
-
-    uniqueIds(changes.deviceEventIds || []).forEach((id) => {
-      const event = deviceEventsById.get(id);
-      if (event) {
-        operations.push((batch) => batch.set(
-          firestore.collection(FIRESTORE_RECORD_COLLECTIONS.deviceEvents).doc(id),
-          toFirestoreRecord(event)
-        ));
-      }
-    });
-
-    uniqueIds(changes.auditIds || []).forEach((id) => {
-      const event = auditById.get(id);
-      if (event) {
-        operations.push((batch) => batch.set(
-          firestore.collection(FIRESTORE_RECORD_COLLECTIONS.audit).doc(id),
-          toFirestoreRecord(event)
-        ));
-      }
-    });
-
-    if (operations.length) {
-      await withTimeout(commitFirestoreOperations(firestore, operations), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore runtime save timed out");
-    }
+    // Always persist the compact single-doc state so STK checkouts + payments stay shared on Vercel.
+    await withTimeout(saveFirestoreState(state), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore runtime save timed out");
   } catch (error) {
     markFirestoreUnavailable(error);
     await saveJsonState(state);
@@ -4557,37 +4520,38 @@ async function jsonStateMtimeMs() {
 
 async function loadFirestoreState(): Promise<AppState> {
   const firestore = getFirestoreDb();
-  const topLevelState = await loadFirestoreCollectionState(firestore);
   const jsonState = existsSync(DATA_FILE) ? await loadJsonState() : seedState();
 
+  // Prefer single-document state (1 read) so free-tier projects do not burn daily read quota
+  // by scanning every contracts/syncEvents/deviceEvents collection on each request.
+  const singleDoc = await getFirestoreStateDoc().get();
+  if (singleDoc.exists) {
+    const data = singleDoc.data() || {};
+    const legacyState = data.state || (looksLikeAppState(data) ? data : null);
+    if (legacyState) {
+      const fireState = normalizeState(legacyState as AppState);
+      const mergedState = mergeState(fireState, jsonState);
+      if (mergedState.changed) {
+        await saveFirestoreState(mergedState.state);
+      }
+      return mergedState.state;
+    }
+  }
+
+  // One-time migration path: import top-level collections into the single-doc format.
+  const topLevelState = await loadFirestoreCollectionState(firestore);
   if (hasFirestoreCollectionData(topLevelState)) {
     const fireState = normalizeState(topLevelState.state);
     const mergedState = mergeState(fireState, jsonState);
-    if (mergedState.changed) {
-      await saveFirestoreState(mergedState.state);
-    }
+    await saveFirestoreState(mergedState.state);
     return mergedState.state;
   }
 
-  const doc = getFirestoreStateDoc();
-  const nestedState = await loadFirestoreCollectionState(doc);
+  const nestedState = await loadFirestoreCollectionState(getFirestoreStateDoc());
   if (hasFirestoreCollectionData(nestedState)) {
     const state = mergeState(normalizeState(nestedState.state), jsonState).state;
     await saveFirestoreState(state);
-    await deleteLegacyFirestoreState();
     return state;
-  }
-
-  const snapshot = await doc.get();
-  if (snapshot.exists) {
-    const data = snapshot.data() || {};
-    const legacyState = data.state || (looksLikeAppState(data) ? data : null);
-    if (legacyState) {
-      const state = mergeState(normalizeState(legacyState as AppState), jsonState).state;
-      await saveFirestoreState(state);
-      await deleteLegacyFirestoreState();
-      return state;
-    }
   }
 
   await saveFirestoreState(jsonState);
@@ -4622,12 +4586,24 @@ function mergeState(firestoreState: AppState, jsonState: AppState): { state: App
 }
 
 async function saveFirestoreState(state: AppState) {
+  // Single-document write keeps STK checkout maps + contracts durable with 1 write per save.
+  // Optional collection mirroring is opt-in to avoid free-tier write exhaustion.
   const firestore = getFirestoreDb();
+  const compact = compactStateForStorage(state);
+  await getFirestoreStateDoc().set({
+    updatedAt: nowIso(),
+    version: VERSION,
+    state: toFirestoreRecord(compact),
+  });
   await firestore.collection(FIRESTORE_SETTINGS_COLLECTION).doc(FIRESTORE_SETTINGS_DOCUMENT).set({
     ...toFirestoreRecord(state.settings),
     updatedAt: nowIso(),
     version: VERSION,
   });
+
+  const mirrorCollections = (process.env.KISMART_FIRESTORE_MIRROR_COLLECTIONS || "false").toLowerCase() === "true";
+  if (!mirrorCollections) return;
+
   await Promise.all([
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.contracts, state.contracts, (item: Contract) => item.id),
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.intakes, state.intakes, (item: IntakeRecord) => item.id),
@@ -4637,6 +4613,18 @@ async function saveFirestoreState(state: AppState) {
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.inventoryDevices, state.inventoryDevices, (item: InventoryDevice) => item.id),
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.audit, state.audit, (item: AuditRecord) => item.id),
   ]);
+}
+
+/** Keep only the newest operational rows so one Firestore doc stays under size limits. */
+function compactStateForStorage(state: AppState): AppState {
+  const keep = (items: any[], max: number) => (Array.isArray(items) ? items.slice(0, max) : []);
+  return {
+    ...state,
+    notifications: keep(state.notifications, 200),
+    syncEvents: keep(state.syncEvents, 300),
+    deviceEvents: keep(state.deviceEvents, 300),
+    audit: keep(state.audit, 200),
+  };
 }
 
 function isFirestoreStorage() {
@@ -4652,8 +4640,13 @@ function isFirestoreStorage() {
 
 function normalizeFirestoreDatabase(value: string) {
   const cleaned = clean(value);
-  // "default" is a common misconfiguration for the system (default) database id.
-  if (!cleaned || cleaned === "(default)" || cleaned.toLowerCase() === "default") return "";
+  // Empty / "(default)" = system default database id.
+  // Named database id "default" is different and must be kept when explicitly requested via
+  // KISMART_FIRESTORE_DATABASE=named:default (legacy projects that created a named DB called default).
+  if (!cleaned || cleaned === "(default)") return "";
+  if (cleaned.toLowerCase() === "named:default") return "default";
+  // Bare "default" historically meant the system DB in our configs — keep that behavior.
+  if (cleaned.toLowerCase() === "default") return "";
   return cleaned;
 }
 
