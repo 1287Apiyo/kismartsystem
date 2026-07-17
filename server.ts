@@ -299,12 +299,30 @@ const PAYBILL_CALLBACK_URL = clean(
 );
 // Official Daraja production host for Lipa Na M-Pesa Online (M-Pesa Express / STK Push).
 const MPESA_API_BASE_URL = (process.env.KISMART_MPESA_API_BASE_URL || "https://api.safaricom.co.ke").replace(/\/$/, "");
-// PayBill STK uses CustomerPayBillOnline with BusinessShortCode === PartyB (both 4749801 in production).
-const MPESA_TRANSACTION_TYPE = "CustomerPayBillOnline" as const;
-const MPESA_PARTY_B = PAYBILL_BUSINESS_NUMBER;
+/**
+ * Buy Goods Till STK (HO + Till):
+ * - BusinessShortCode (password) = HO shortcode from Daraja passkey (4749801)
+ * - PartyB = Till that receives money (9257070)
+ * - TransactionType = CustomerBuyGoodsOnline
+ * PayBill-only setups: set type CustomerPayBillOnline and leave PartyB empty (defaults to shortcode).
+ */
+const MPESA_TRANSACTION_TYPE = normalizeMpesaTransactionTypeEnv(
+  process.env.KISMART_MPESA_TRANSACTION_TYPE || process.env.KISMART_PAYBILL_TRANSACTION_TYPE || "CustomerBuyGoodsOnline"
+);
+const MPESA_PARTY_B =
+  clean(process.env.KISMART_MPESA_PARTY_B || process.env.KISMART_PAYBILL_TILL_NUMBER || process.env.KISMART_PAYBILL_PARTY_B || "") ||
+  PAYBILL_BUSINESS_NUMBER;
 const MPESA_CONFIGURED = Boolean(
   PAYBILL_ENABLED && PAYBILL_API_KEY && PAYBILL_API_SECRET && PAYBILL_PASSKEY && PAYBILL_BUSINESS_NUMBER && PAYBILL_CALLBACK_URL
 );
+
+function normalizeMpesaTransactionTypeEnv(value: string): "CustomerPayBillOnline" | "CustomerBuyGoodsOnline" {
+  const cleaned = clean(value).toLowerCase();
+  if (cleaned.includes("buy") || cleaned.includes("till") || cleaned === "customerbuygoodsonline") {
+    return "CustomerBuyGoodsOnline";
+  }
+  return "CustomerPayBillOnline";
+}
 const MPESA_HTTP_MAX_ATTEMPTS = Math.max(1, numberFrom(process.env.KISMART_MPESA_HTTP_RETRIES, 3));
 const DEFAULT_PAYMENT_APP_PACKAGES = ["com.safaricom.mpesa", "com.safaricom.mpesa.lifestyle", "ke.co.safaricom.mpesa"];
 const PAYMENT_APP_PACKAGES = paymentAppPackagesFromEnv(process.env.KISMART_PAYMENT_APP_PACKAGES);
@@ -1194,7 +1212,8 @@ async function routeRequest(request: any, response: any) {
       amount,
       phoneNumber: msisdn,
       paybill: PAYBILL_BUSINESS_NUMBER,
-      partyB: PAYBILL_BUSINESS_NUMBER,
+      partyB: MPESA_PARTY_B,
+      till: MPESA_PARTY_B,
       transactionType: MPESA_TRANSACTION_TYPE,
       account: accountReference,
       customerMessage: clean(stkResult.CustomerMessage || ""),
@@ -4239,9 +4258,14 @@ function polarPoint(cx, cy, radius, angle) {
 }
 
 function paymentRails() {
-  const mpesaStatus = MPESA_CONFIGURED ? "Ready" : PAYBILL_ENABLED ? "Attention" : "Blocked";
-  const mpesaFill = MPESA_CONFIGURED ? "100%" : PAYBILL_ENABLED ? "70%" : "35%";
-  return '<div class="pipeline"><div class="pipeline-row"><strong>M-Pesa (Prod PayBill ' + e(PAYBILL_BUSINESS_NUMBER) + ')</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: ' + mpesaFill + '"></div></div>' + badge(mpesaStatus) + '</div><div class="pipeline-row"><strong>Airtel Money</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 90%"></div></div>' + badge("Ready") + '</div><div class="pipeline-row"><strong>Idempotency</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 100%"></div></div>' + badge("Ready") + '</div><div class="queue-row"><div><strong>Callback routes</strong><p>/api/payments/paybill-callback, /api/payments/mpesa-callback, /api/payments/airtel-callback</p></div>' + badge(MPESA_CONFIGURED ? "Ready" : "Attention") + '</div><div class="queue-row"><div><strong>Simulated STK</strong><p>' + (ALLOW_FAKE_STK ? "ENABLED (dev only — turn off for production)" : "Disabled — real Daraja STK Push only") + '</p></div>' + badge(ALLOW_FAKE_STK ? "Attention" : "Ready") + '</div></div>';
+  const cfg = (state && state.config) || {};
+  const mpesaConfigured = Boolean(cfg.mpesaConfigured);
+  const mpesaEnabled = Boolean(cfg.mpesaEnabled);
+  const shortcode = cfg.mpesaShortcode || "—";
+  const allowFake = Boolean(cfg.allowFakeStk);
+  const mpesaStatus = mpesaConfigured ? "Ready" : mpesaEnabled ? "Attention" : "Blocked";
+  const mpesaFill = mpesaConfigured ? "100%" : mpesaEnabled ? "70%" : "35%";
+  return '<div class="pipeline"><div class="pipeline-row"><strong>M-Pesa (Prod PayBill ' + e(shortcode) + ')</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: ' + mpesaFill + '"></div></div>' + badge(mpesaStatus) + '</div><div class="pipeline-row"><strong>Airtel Money</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 90%"></div></div>' + badge("Ready") + '</div><div class="pipeline-row"><strong>Idempotency</strong><div class="pipeline-line"><div class="pipeline-fill" style="width: 100%"></div></div>' + badge("Ready") + '</div><div class="queue-row"><div><strong>Callback routes</strong><p>/api/payments/paybill-callback, /api/payments/mpesa-callback, /api/payments/airtel-callback</p></div>' + badge(mpesaConfigured ? "Ready" : "Attention") + '</div><div class="queue-row"><div><strong>STK type</strong><p>' + e(cfg.mpesaTransactionType || "CustomerPayBillOnline") + ' · API ' + e(cfg.mpesaApiBase || "https://api.safaricom.co.ke") + '</p></div>' + badge(mpesaConfigured ? "Ready" : "Attention") + '</div><div class="queue-row"><div><strong>Simulated STK</strong><p>' + (allowFake ? "ENABLED (dev only — turn off for production)" : "Disabled — real Daraja STK Push only") + '</p></div>' + badge(allowFake ? "Attention" : "Ready") + '</div></div>';
 }
 
 function readinessList() {
@@ -4277,10 +4301,14 @@ function ecosystemSummary() {
 }
 
 function deviceAgentGuide() {
+  const cfg = (state && state.config) || {};
+  const baseUrl = cfg.publicBaseUrl || "https://kismartsystem.vercel.app";
+  const storageReady = cfg.storageMode === "firestore" || cfg.remoteReady;
   return '<div class="queue">' +
     '<div class="readiness-row"><strong>Android policy pull</strong><p>GET /api/devices/:imei/policy returns balance, arrears, next due date, and the current restriction level for the Android agent.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Android identity binding</strong><p>First trusted sync locks the contract to that handset Android ID and issues a binding token. Reinstalls and app-data wipes on the same phone re-bind automatically — do not use Reset ID unless the physical handset changed.</p>' + badge("Ready") + '</div>' +
-    '<div class="readiness-row"><strong>Remote device control</strong><p>Phones must use the public HTTPS URL (' + e(PUBLIC_BASE_URL) + ') so lock/restore works on mobile data and any Wi-Fi. Admin dashboard and phones must share Firestore (not ephemeral JSON on Vercel).</p>' + badge(isFirestoreStorage() ? "Ready" : "Attention") + '</div>' +
+    '<div class="readiness-row"><strong>Remote device control</strong><p>Phones must use the public HTTPS URL (' + e(baseUrl) + ') so lock/restore works on mobile data and any Wi-Fi. Admin dashboard and phones must share Firestore (not ephemeral JSON on Vercel).</p>' + badge(storageReady ? "Ready" : "Attention") + '</div>' +
+    '<div class="readiness-row"><strong>M-Pesa STK Push</strong><p>POST /api/devices/:imei/paybill-stk starts real Daraja STK for PayBill ' + e(cfg.mpesaShortcode || "—") + '. Callback: ' + e(cfg.mpesaCallbackUrl || "(not set)") + '</p>' + badge(cfg.mpesaConfigured ? "Ready" : "Attention") + '</div>' +
     '<div class="readiness-row"><strong>Apple MDM bridge</strong><p>iOS contracts queue Apple MDM commands for supervised iPhones. Use Dispatch MDM or configure KISMART_IOS_MDM_PROVIDER=webhook for a real MDM connector.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Tamper reporting</strong><p>Android posts tamper events through the agent; iOS tamper and restriction depth come from the MDM provider.</p>' + badge("Ready") + '</div>' +
     '</div>';
@@ -4957,6 +4985,21 @@ function buildPublicState(state: AppState) {
       generatedAt: nowIso(),
       smsProvider: smsProvider.label,
       smsReady: smsProvider.ready,
+    },
+    // Runtime config for the admin browser (server constants are NOT in scope in /assets/app.js).
+    config: {
+      publicBaseUrl: PUBLIC_BASE_URL,
+      storageMode: isFirestoreStorage() ? "firestore" : "json",
+      remoteReady: isFirestoreStorage() || !process.env.VERCEL,
+      mpesaConfigured: MPESA_CONFIGURED,
+      mpesaEnabled: PAYBILL_ENABLED,
+      mpesaShortcode: PAYBILL_BUSINESS_NUMBER,
+      mpesaPartyB: MPESA_PARTY_B,
+      mpesaTransactionType: MPESA_TRANSACTION_TYPE,
+      mpesaCallbackUrl: PAYBILL_CALLBACK_URL,
+      mpesaApiBase: MPESA_API_BASE_URL,
+      allowFakeStk: ALLOW_FAKE_STK,
+      deviceSyncSecretConfigured: Boolean(DEVICE_SYNC_SECRET),
     },
     summary: getSummary(state),
     contracts,
@@ -7162,6 +7205,8 @@ async function initiateMpesaStkPushOnce(
   const timestamp = mpesaTimestampEAT();
   const password = buildMpesaStkPassword(timestamp);
 
+  // HO shortcode builds the password; PartyB is the Till (Buy Goods) or same shortcode (PayBill).
+  const partyB = MPESA_PARTY_B || PAYBILL_BUSINESS_NUMBER;
   const body = {
     BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
     Password: password,
@@ -7169,7 +7214,7 @@ async function initiateMpesaStkPushOnce(
     TransactionType: input.transactionType,
     Amount: amount,
     PartyA: msisdn,
-    PartyB: PAYBILL_BUSINESS_NUMBER,
+    PartyB: partyB,
     PhoneNumber: msisdn,
     CallBackURL: PAYBILL_CALLBACK_URL,
     AccountReference: accountReference,
@@ -7268,14 +7313,14 @@ async function confirmStkPromptAlive(checkoutRequestId: string): Promise<{ ok: b
 
 /**
  * Initiate M-Pesa Express STK Push against Daraja production.
- * Primary: CustomerPayBillOnline (PayBill 4749801).
- * If Safaricom immediately fails with type-mismatch 2029, retry CustomerBuyGoodsOnline once.
+ * Default: CustomerBuyGoodsOnline with HO shortcode + Till PartyB (4749801 / 9257070).
+ * Falls back to the other transaction type on Safaricom 2029 type mismatch.
  */
 async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkPushResult> {
-  const types: Array<"CustomerPayBillOnline" | "CustomerBuyGoodsOnline"> = [
-    "CustomerPayBillOnline",
-    "CustomerBuyGoodsOnline",
-  ];
+  const primary = MPESA_TRANSACTION_TYPE;
+  const secondary: "CustomerPayBillOnline" | "CustomerBuyGoodsOnline" =
+    primary === "CustomerBuyGoodsOnline" ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
+  const types: Array<"CustomerPayBillOnline" | "CustomerBuyGoodsOnline"> = [primary, secondary];
   let lastError = "";
 
   for (let i = 0; i < types.length; i += 1) {
@@ -7287,23 +7332,24 @@ async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkP
         return result;
       }
       lastError = `STK failed after accept (${alive.code}): ${alive.desc || "no PIN prompt"}`;
-      console.error(`[mpesa-stk] ${transactionType} ${lastError}`);
-      // Only fall through to BuyGoods when PayBill hits type mismatch 2029.
-      if (alive.code === 2029 && i < types.length - 1) {
-        console.warn(`[mpesa-stk] retrying with CustomerBuyGoodsOnline after 2029`);
+      console.error(`[mpesa-stk] ${transactionType} partyB=${MPESA_PARTY_B} ${lastError}`);
+      // Type mismatch: try the other STK product once.
+      if ((alive.code === 2029 || alive.code === 2002) && i < types.length - 1) {
+        console.warn(`[mpesa-stk] retrying with ${types[i + 1]} after ${alive.code}`);
         continue;
       }
       throw new Error(
         alive.code === 2029
-          ? "M-Pesa could not show the PIN prompt (Safaricom 2029: PayBill/Till type mismatch for shortcode 4749801). Contact Safaricom to confirm Lipa Na M-Pesa Online is enabled for this PayBill."
-          : `M-Pesa STK prompt failed: ${alive.desc || "unknown"} (${alive.code})`
+          ? `M-Pesa could not show the PIN prompt (2029 type mismatch). Config: type=${transactionType} shortcode=${PAYBILL_BUSINESS_NUMBER} till/partyB=${MPESA_PARTY_B}.`
+          : alive.code === 2002
+            ? `M-Pesa HO/Till mismatch (2002). BusinessShortCode=${PAYBILL_BUSINESS_NUMBER} PartyB=${MPESA_PARTY_B}. Confirm Till ${MPESA_PARTY_B} belongs under HO ${PAYBILL_BUSINESS_NUMBER}.`
+            : `M-Pesa STK prompt failed: ${alive.desc || "unknown"} (${alive.code})`
       );
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       if (i >= types.length - 1) throw error;
-      // Only fall through when Safaricom type mismatch suggests trying BuyGoods once.
-      if (!lastError.includes("2029")) throw error;
-      console.warn(`[mpesa-stk] ${transactionType} error with 2029; trying next type`);
+      if (!lastError.includes("2029") && !lastError.includes("2002")) throw error;
+      console.warn(`[mpesa-stk] ${transactionType} error; trying next type: ${lastError}`);
     }
   }
 
