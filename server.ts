@@ -1158,6 +1158,9 @@ async function routeRequest(request: any, response: any) {
       amount,
       accountReference,
     });
+    // STK pending must NEVER unlock the phone — re-assert limit while balance remains.
+    contract.restriction.holdAutoRestrict = false;
+    const limitControls = applyAutomaticPaymentControls(state, [contract]);
     recordDeviceEvent(state, contract, "Heartbeat", "Online", `PayBill STK prompt initiated for ${formatKes(amount)} to ${msisdn}`, {
       appVersion: clean(body.appVersion || "unknown"),
       reference: checkoutRequestId,
@@ -1167,6 +1170,7 @@ async function routeRequest(request: any, response: any) {
       paybillNumber: PAYBILL_BUSINESS_NUMBER,
       accountNumber: accountReference,
       identity: "verified",
+      paymentOnlyActive: true,
     });
     addAudit(
       state,
@@ -1175,9 +1179,13 @@ async function routeRequest(request: any, response: any) {
       `${contract.id} - ${formatKes(amount)} to ${msisdn} (CheckoutID: ${checkoutRequestId}, MerchantID: ${merchantRequestId})`
     );
     await saveState(state);
+    if (limitControls.changed) {
+      await dispatchPendingDeviceCommands(state, 10).catch(() => undefined);
+    }
     console.log(
       `[mpesa-stk] accepted contract=${contract.id} checkout=${checkoutRequestId} merchant=${merchantRequestId} amount=${amount} phone=${msisdn}`
     );
+    const policy = buildDevicePolicy(state, contract, identityCheck.bindingToken);
     sendJson(response, 202, {
       message: "M-Pesa STK prompt sent. Enter your M-Pesa PIN on the phone to complete payment.",
       reference: checkoutRequestId,
@@ -1190,6 +1198,8 @@ async function routeRequest(request: any, response: any) {
       transactionType: MPESA_TRANSACTION_TYPE,
       account: accountReference,
       customerMessage: clean(stkResult.CustomerMessage || ""),
+      // Return policy so the agent keeps Limit active while waiting for payment.
+      policy,
     });
     return;
   }
@@ -5488,10 +5498,10 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
 
   contracts.forEach((contract) => {
     const progress = getProgress(contract);
-    const limitedActive = isLimitedAccessRestriction(contract.restriction);
     const fullLockActive = contract.restriction.active && contract.restriction.level === "Full lock";
+    const limitedActive = isLimitedAccessRestriction(contract.restriction);
 
-    // Fully paid (no remaining balance) → always clear limit/lock. Source of truth is contract payments/balance.
+    // ONLY restore when the financed balance is fully paid. Clicking Pay / STK pending must never unlock.
     if (!hasPayableBalance(progress)) {
       if (!contract.restriction.active && !contract.restriction.holdAutoRestrict) return;
       if (!contract.restriction.active && contract.restriction.holdAutoRestrict) {
@@ -5513,34 +5523,32 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
       return;
     }
 
-    // Overdue amount cleared but financed balance remains: drop automatic Limited access only (not Full lock).
-    if (!hasOverduePayableBalance(progress) && limitedActive) {
-      const { event, audit } = restoreDevice(state, contract, "Automatic restoration after overdue balance cleared", {
-        holdAutoRestrict: false,
-      });
-      changes.contractIds?.push(contract.id);
-      changes.syncEventIds?.push(event.id);
-      changes.auditIds?.push(audit.id);
-      actions.push({
-        contractId: contract.id,
-        type: "Restore",
-        message: "Overdue balance cleared; limit screen released automatically.",
-      });
+    // Unpaid balance remains: keep Full lock if admin set it.
+    if (fullLockActive) {
+      if (contract.restriction.holdAutoRestrict) {
+        contract.restriction.holdAutoRestrict = false;
+        changes.contractIds?.push(contract.id);
+      }
       return;
     }
 
-    if (contract.restriction.active || fullLockActive) return;
-    // Respect admin Restore until admin locks again.
-    if (contract.restriction.holdAutoRestrict) return;
-    // Automatic limit screen only when there is still a financed balance AND an overdue amount to pay.
-    if (!hasOverduePayableBalance(progress)) return;
+    // Unpaid balance: force payment-limit mode. Do not honour admin restore holds while money is still owed.
+    if (limitedActive) {
+      if (contract.restriction.holdAutoRestrict) {
+        contract.restriction.holdAutoRestrict = false;
+        changes.contractIds?.push(contract.id);
+      }
+      return;
+    }
 
+    // Not limited yet but still unpaid → apply Limit immediately (covers first sync and after mistaken restore).
+    contract.restriction.holdAutoRestrict = false;
     const event = applyRestriction(state, contract, "Limited access");
     const audit = addAudit(
       state,
       "System",
       "Automatic payment limit applied",
-      `${contract.id} - balance ${formatKes(progress.balance)}, overdue ${formatKes(progress.arrears)}`
+      `${contract.id} - unpaid balance ${formatKes(progress.balance)} (limit stays until payment is confirmed)`
     );
     changes.contractIds?.push(contract.id);
     changes.syncEventIds?.push(event.id);
@@ -5548,7 +5556,7 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     actions.push({
       contractId: contract.id,
       type: "Restriction",
-      message: `Limited access queued automatically for payable balance ${formatKes(progress.balance)} (overdue ${formatKes(progress.arrears)}).`,
+      message: `Limited access enforced while unpaid balance ${formatKes(progress.balance)} remains.`,
     });
   });
 
@@ -5571,9 +5579,27 @@ function isLimitedAccessRestriction(restriction: RestrictionState | null | undef
   return Boolean(restriction?.active && restriction.level === "Limited access");
 }
 
-/** Phone-facing limit screen: Limited access AND remaining balance from latest payments. */
+/**
+ * Phone-facing limit screen:
+ * Keep Limit active for ANY unpaid financed balance until a payment is confirmed (balance drops).
+ * Full lock takes precedence when admin set it.
+ */
 function shouldEnforcePaymentLimit(contract: Contract, progress = getProgress(contract)) {
-  return isLimitedAccessRestriction(contract.restriction) && hasPayableBalance(progress);
+  if (!hasPayableBalance(progress)) return false;
+  if (contract.restriction?.active && contract.restriction.level === "Full lock") return false;
+  // Unpaid → limit. Restriction may still be flipping in applyAutomaticPaymentControls; enforce on policy anyway.
+  return true;
+}
+
+/** Latest STK attempt for this contract (for device UI while waiting). */
+function latestStkEventForContract(state: AppState, contractId: string) {
+  return (
+    state.syncEvents.find(
+      (e) =>
+        e.contractId === contractId &&
+        (e.provider === "M-Pesa PayBill" || e.provider === "M-Pesa STK" || e.provider === "M-Pesa")
+    ) || null
+  );
 }
 
 function startAutomaticPaymentControlLoop() {
@@ -6075,30 +6101,47 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
   const pendingCommands = currentPendingDeviceCommands(state, contract)
     .map(deviceCommandPayload);
   const hasBalance = hasPayableBalance(progress);
-  const paymentOnlyActive = shouldEnforcePaymentLimit(contract, progress);
   const fullLockActive =
     Boolean(contract.restriction.active && contract.restriction.level === "Full lock" && hasBalance);
-  // Never send a sticky limit/lock to the phone when the financed balance is already cleared.
+  // Limit stays on for any unpaid balance until a real payment is confirmed (balance drops).
+  const paymentOnlyActive = shouldEnforcePaymentLimit(contract, progress) && !fullLockActive;
   const effectiveRestriction: RestrictionState = paymentOnlyActive || fullLockActive
     ? {
         active: true,
-        level: paymentOnlyActive ? "Limited access" : "Full lock",
+        level: fullLockActive ? "Full lock" : "Limited access",
         appliedAt: contract.restriction.appliedAt || todayIso(),
-        holdAutoRestrict: Boolean(contract.restriction.holdAutoRestrict),
+        // Never hold auto-restrict while money is still owed — Pay must not unlock the phone.
+        holdAutoRestrict: false,
       }
     : {
         active: false,
         level: "None",
         appliedAt: null,
-        holdAutoRestrict: Boolean(contract.restriction.holdAutoRestrict),
+        holdAutoRestrict: false,
       };
   const restrictionMessage = paymentOnlyActive
     ? `${contract.customer.name}, you still have ${formatKes(progress.balance)} to pay` +
       (progress.arrears > 0 ? ` (${formatKes(progress.arrears)} overdue)` : "") +
       `. Open KISMART to pay.`
-    : hasBalance
-      ? "Account is currently in good standing."
-      : "Account is fully paid. Device access restored.";
+    : fullLockActive
+      ? `${contract.customer.name}, this phone is locked until payment is confirmed.`
+      : hasBalance
+        ? "Account is currently in good standing."
+        : "Account is fully paid. Device access restored.";
+
+  const stkEvent = latestStkEventForContract(state, contract.id);
+  const pendingStk = stkEvent
+    ? {
+        status: stkEvent.status,
+        reference: stkEvent.reference || "",
+        merchantRequestId: stkEvent.merchantRequestId || "",
+        message: stkEvent.message || "",
+        amount: numberFrom(stkEvent.amount, 0),
+        phoneNumber: stkEvent.phoneNumber || "",
+        time: stkEvent.time || "",
+      }
+    : null;
+
   return {
     service: SHOP_NAME,
     serverTime: nowIso(),
@@ -6129,18 +6172,19 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
     nextAmount: progress.nextAmount,
     restriction: effectiveRestriction,
     pendingCommands,
+    pendingStk,
     customerMessage: restrictionMessage,
-    allowedPaymentPackages: paymentOnlyActive ? [ANDROID_AGENT_PACKAGE] : PAYMENT_APP_PACKAGES,
+    allowedPaymentPackages: paymentOnlyActive || fullLockActive ? [ANDROID_AGENT_PACKAGE] : PAYMENT_APP_PACKAGES,
     paymentOnly: {
-      // Limit screen is driven only by payable balance + Limited access from shared storage.
+      // Limit while any financed balance remains — only payment confirmation clears it.
       active: paymentOnlyActive,
       label: "KISMART-only mode",
       reason: paymentOnlyActive
-        ? progress.arrears > 0
-          ? "overdue-payable-balance"
-          : "payable-balance"
+        ? "unpaid-balance"
         : hasBalance
-          ? "no-limit"
+          ? fullLockActive
+            ? "full-lock"
+            : "no-limit"
           : "balance-cleared",
       balance: progress.balance,
       arrears: progress.arrears,
@@ -7096,11 +7140,9 @@ function assertMpesaStkConfig() {
   }
 }
 
-/**
- * Initiate M-Pesa Express STK Push (CustomerPayBillOnline) against Daraja production.
- * Amount is dynamic; PartyA/PhoneNumber are 254…; PartyB = BusinessShortCode (PayBill).
- */
-async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkPushResult> {
+async function initiateMpesaStkPushOnce(
+  input: MpesaStkPushInput & { transactionType: "CustomerPayBillOnline" | "CustomerBuyGoodsOnline" }
+): Promise<MpesaStkPushResult> {
   assertMpesaStkConfig();
 
   const msisdn = formatMpesaPhone(input.phoneNumber);
@@ -7120,12 +7162,11 @@ async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkP
   const timestamp = mpesaTimestampEAT();
   const password = buildMpesaStkPassword(timestamp);
 
-  // Official Lipa Na M-Pesa Online request body (PayBill).
   const body = {
     BusinessShortCode: PAYBILL_BUSINESS_NUMBER,
     Password: password,
     Timestamp: timestamp,
-    TransactionType: "CustomerPayBillOnline",
+    TransactionType: input.transactionType,
     Amount: amount,
     PartyA: msisdn,
     PartyB: PAYBILL_BUSINESS_NUMBER,
@@ -7160,7 +7201,6 @@ async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkP
   }
 
   if (!response.ok) {
-    // Invalidate token on auth-style failures so the next attempt refreshes.
     if (response.status === 401 || response.status === 403) {
       mpesaAccessTokenCache = null;
     }
@@ -7189,9 +7229,85 @@ async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkP
   }
 
   console.log(
-    `[mpesa-stk] accepted CheckoutRequestID=${result.CheckoutRequestID} MerchantRequestID=${result.MerchantRequestID}`
+    `[mpesa-stk] accepted CheckoutRequestID=${result.CheckoutRequestID} MerchantRequestID=${result.MerchantRequestID} type=${input.transactionType}`
   );
   return result;
+}
+
+/**
+ * Detect Daraja "accepted then silently failed" cases (e.g. result 2029) so the phone
+ * does not sit on "Waiting for M-Pesa..." with no PIN dialog.
+ */
+async function confirmStkPromptAlive(checkoutRequestId: string): Promise<{ ok: boolean; code: number | null; desc: string }> {
+  const delays = [1500, 2000, 2500];
+  for (const delay of delays) {
+    await sleepMs(delay);
+    try {
+      const status = await queryMpesaStkStatus(checkoutRequestId);
+      if (status.resultCode === null || Number.isNaN(status.resultCode)) continue;
+      // Still waiting for PIN or already paid — treat as prompt delivered / in flight.
+      if (status.resultCode === 0 || status.resultCode === 4999) {
+        return { ok: true, code: status.resultCode, desc: status.resultDesc };
+      }
+      // User cancelled / wrong PIN etc. still means the STK UI appeared.
+      if ([1032, 1037, 2001, 1, 1001, 1019, 2028].includes(status.resultCode)) {
+        return { ok: true, code: status.resultCode, desc: status.resultDesc };
+      }
+      // Hard delivery / config failures — no usable PIN dialog.
+      if ([2029, 2002, 1025, 9999].includes(status.resultCode)) {
+        return { ok: false, code: status.resultCode, desc: status.resultDesc };
+      }
+      return { ok: false, code: status.resultCode, desc: status.resultDesc };
+    } catch (error) {
+      console.warn(`[mpesa-stk] query failed for ${checkoutRequestId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  // No terminal status yet — leave as accepted (callback will finalize).
+  return { ok: true, code: null, desc: "pending" };
+}
+
+/**
+ * Initiate M-Pesa Express STK Push against Daraja production.
+ * Primary: CustomerPayBillOnline (PayBill 4749801).
+ * If Safaricom immediately fails with type-mismatch 2029, retry CustomerBuyGoodsOnline once.
+ */
+async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkPushResult> {
+  const types: Array<"CustomerPayBillOnline" | "CustomerBuyGoodsOnline"> = [
+    "CustomerPayBillOnline",
+    "CustomerBuyGoodsOnline",
+  ];
+  let lastError = "";
+
+  for (let i = 0; i < types.length; i += 1) {
+    const transactionType = types[i];
+    try {
+      const result = await initiateMpesaStkPushOnce({ ...input, transactionType });
+      const alive = await confirmStkPromptAlive(result.CheckoutRequestID);
+      if (alive.ok) {
+        return result;
+      }
+      lastError = `STK failed after accept (${alive.code}): ${alive.desc || "no PIN prompt"}`;
+      console.error(`[mpesa-stk] ${transactionType} ${lastError}`);
+      // Only fall through to BuyGoods when PayBill hits type mismatch 2029.
+      if (alive.code === 2029 && i < types.length - 1) {
+        console.warn(`[mpesa-stk] retrying with CustomerBuyGoodsOnline after 2029`);
+        continue;
+      }
+      throw new Error(
+        alive.code === 2029
+          ? "M-Pesa could not show the PIN prompt (Safaricom 2029: PayBill/Till type mismatch for shortcode 4749801). Contact Safaricom to confirm Lipa Na M-Pesa Online is enabled for this PayBill."
+          : `M-Pesa STK prompt failed: ${alive.desc || "unknown"} (${alive.code})`
+      );
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (i >= types.length - 1) throw error;
+      // Only fall through when Safaricom type mismatch suggests trying BuyGoods once.
+      if (!lastError.includes("2029")) throw error;
+      console.warn(`[mpesa-stk] ${transactionType} error with 2029; trying next type`);
+    }
+  }
+
+  throw new Error(lastError || "M-Pesa STK prompt failed");
 }
 
 /** Optional STK status query (used for diagnostics / admin tooling). */
