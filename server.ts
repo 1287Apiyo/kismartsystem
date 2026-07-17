@@ -8,6 +8,13 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import {
+  buildPaymentScheduleLabels,
+  renderPaymentPlanAgreement,
+  renderSoldPhonesDocument,
+  renderSupplyDocument,
+  type DocLang,
+} from "./documents.ts";
 
 type Frequency = "Daily" | "Weekly" | "Monthly" | "Custom";
 type Platform = "Android" | "iOS";
@@ -55,6 +62,28 @@ interface InventoryDevice {
   status: "Available" | "Assigned";
   assignedContractId: string | null;
   assignedAt: string | null;
+}
+
+/** Daily cash / cash-sale log of phones sold (not necessarily financed contracts). */
+interface SoldPhoneRecord {
+  id: string;
+  date: string;
+  phoneType: string;
+  price: number;
+  details: string;
+  createdAt: string;
+}
+
+/** Phones supplied to resellers / partners. */
+interface SupplyRecord {
+  id: string;
+  date: string;
+  suppliedTo: string;
+  phoneNumber: string;
+  phoneTaken: string;
+  priceGiven: number;
+  details: string;
+  createdAt: string;
 }
 
 interface DeviceBinding {
@@ -199,6 +228,8 @@ interface AppState {
   notifications: NotificationRecord[];
   intakes: IntakeRecord[];
   inventoryDevices: InventoryDevice[];
+  soldPhones: SoldPhoneRecord[];
+  supplies: SupplyRecord[];
   audit: AuditRecord[];
   contracts: Contract[];
 }
@@ -551,6 +582,16 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  if (method === "GET" && (url.pathname === "/assets/logo.jpeg" || url.pathname === "/assets/logo.jpg")) {
+    const filePath = join(__dirname, "assets", "logo.jpeg");
+    if (!existsSync(filePath)) {
+      sendJson(response, 404, { error: "Logo not found" });
+      return;
+    }
+    sendBinary(response, 200, "image/jpeg", await readFile(filePath));
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/assets/app.css") {
     sendText(response, 200, "text/css; charset=utf-8", renderStyles());
     return;
@@ -610,6 +651,144 @@ async function routeRequest(request: any, response: any) {
     addAudit(state, body.role || "Admin", "Inventory device added", `${device.model} - ${device.imei || device.serial || device.id}`);
     await saveState(state);
     sendJson(response, 201, enrichInventoryDevice(state, device));
+    return;
+  }
+
+  // —— Sold phones (daily sales log) ——
+  if (method === "GET" && url.pathname === "/api/sold-phones") {
+    assertAdminSession(request);
+    const state = await loadState();
+    sendJson(response, 200, state.soldPhones || []);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/sold-phones") {
+    assertAdminSession(request);
+    const body = await readJson(request);
+    assertRole(body.role || "Admin", "contracts.write");
+    const state = await loadState();
+    const record = createSoldPhoneFromPayload(body);
+    state.soldPhones.unshift(record);
+    addAudit(state, body.role || "Admin", "Sold phone logged", `${record.phoneType} · ${record.date} · ${record.price}`);
+    await saveState(state);
+    sendJson(response, 201, record);
+    return;
+  }
+
+  const soldPhoneDeleteMatch = url.pathname.match(/^\/api\/sold-phones\/([^/]+)$/);
+  if (method === "DELETE" && soldPhoneDeleteMatch) {
+    assertAdminSession(request);
+    const body = await readJson(request);
+    assertRole(body.role || "Admin", "contracts.write");
+    const state = await loadState();
+    const id = decodeURIComponent(soldPhoneDeleteMatch[1]);
+    const index = state.soldPhones.findIndex((item) => item.id === id);
+    if (index < 0) throw new HttpError(404, `Sold phone ${id} not found`);
+    const [record] = state.soldPhones.splice(index, 1);
+    addAudit(state, body.role || "Admin", "Sold phone deleted", `${record.phoneType} · ${record.date}`);
+    await saveState(state);
+    sendJson(response, 200, { ok: true, deleted: record.id });
+    return;
+  }
+
+  // —— Supply log ——
+  if (method === "GET" && url.pathname === "/api/supplies") {
+    assertAdminSession(request);
+    const state = await loadState();
+    sendJson(response, 200, state.supplies || []);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/supplies") {
+    assertAdminSession(request);
+    const body = await readJson(request);
+    assertRole(body.role || "Admin", "contracts.write");
+    const state = await loadState();
+    const record = createSupplyFromPayload(body);
+    state.supplies.unshift(record);
+    addAudit(state, body.role || "Admin", "Supply logged", `${record.suppliedTo} · ${record.phoneTaken}`);
+    await saveState(state);
+    sendJson(response, 201, record);
+    return;
+  }
+
+  const supplyDeleteMatch = url.pathname.match(/^\/api\/supplies\/([^/]+)$/);
+  if (method === "DELETE" && supplyDeleteMatch) {
+    assertAdminSession(request);
+    const body = await readJson(request);
+    assertRole(body.role || "Admin", "contracts.write");
+    const state = await loadState();
+    const id = decodeURIComponent(supplyDeleteMatch[1]);
+    const index = state.supplies.findIndex((item) => item.id === id);
+    if (index < 0) throw new HttpError(404, `Supply ${id} not found`);
+    const [record] = state.supplies.splice(index, 1);
+    addAudit(state, body.role || "Admin", "Supply deleted", `${record.suppliedTo} · ${record.phoneTaken}`);
+    await saveState(state);
+    sendJson(response, 200, { ok: true, deleted: record.id });
+    return;
+  }
+
+  // —— Printable documents (HTML → print / share) ——
+  if (method === "GET" && url.pathname === "/docs/sold-phones") {
+    if (!getAdminSession(request)) {
+      sendRedirect(response, "/login");
+      return;
+    }
+    const state = await loadState();
+    const lang = normalizeDocLang(url.searchParams.get("lang"));
+    const from = clean(url.searchParams.get("from") || "");
+    const to = clean(url.searchParams.get("to") || "");
+    const rows = filterByDateRange(state.soldPhones || [], from, to, (r) => r.date);
+    sendHtml(
+      response,
+      renderSoldPhonesDocument({
+        shopName: SHOP_NAME,
+        logoUrl: "/assets/logo.jpeg",
+        lang,
+        from: from || (rows[rows.length - 1]?.date || todayIso()),
+        to: to || (rows[0]?.date || todayIso()),
+        rows,
+      })
+    );
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/docs/supplies") {
+    if (!getAdminSession(request)) {
+      sendRedirect(response, "/login");
+      return;
+    }
+    const state = await loadState();
+    const lang = normalizeDocLang(url.searchParams.get("lang"));
+    const from = clean(url.searchParams.get("from") || "");
+    const to = clean(url.searchParams.get("to") || "");
+    const rows = filterByDateRange(state.supplies || [], from, to, (r) => r.date);
+    sendHtml(
+      response,
+      renderSupplyDocument({
+        shopName: SHOP_NAME,
+        logoUrl: "/assets/logo.jpeg",
+        lang,
+        from: from || (rows[rows.length - 1]?.date || todayIso()),
+        to: to || (rows[0]?.date || todayIso()),
+        rows,
+      })
+    );
+    return;
+  }
+
+  const paymentPlanDocMatch = url.pathname.match(/^\/docs\/payment-plan\/([^/]+)$/);
+  if (method === "GET" && paymentPlanDocMatch) {
+    if (!getAdminSession(request)) {
+      sendRedirect(response, "/login");
+      return;
+    }
+    const state = await loadState();
+    const contractId = decodeURIComponent(paymentPlanDocMatch[1]);
+    const contract = state.contracts.find((c) => c.id === contractId);
+    if (!contract) throw new HttpError(404, `Contract ${contractId} not found`);
+    const lang = normalizeDocLang(url.searchParams.get("lang"));
+    sendHtml(response, buildPaymentPlanHtml(contract, lang));
     return;
   }
 
@@ -1284,7 +1463,7 @@ function renderSaasLanding() {
 <body class="ks-site">
   <header class="ks-topbar">
     <div class="ks-wrap ks-topbar-inner">
-      <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+      <a class="ks-logo" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
       <nav class="ks-nav" aria-label="Primary">
         <a href="#solutions">Solutions</a>
         <a href="#workflow">Workflow</a>
@@ -1302,32 +1481,32 @@ function renderSaasLanding() {
     <section class="ks-hero">
       <div class="ks-wrap ks-hero-grid">
         <div class="ks-hero-copy">
-          <p class="ks-kicker">Phone installment management</p>
-          <h1>Contracts, payments, and device control in one place.</h1>
-          <p class="ks-lead">KISMART helps phone shops register financed devices, track repayments, follow up on arrears, and control enrolled handsets from the admin dashboard.</p>
+          <p class="ks-kicker">KISMART Global · Installment operations</p>
+          <h1>Run financed phone sales with clarity and control.</h1>
+          <p class="ks-lead">Register customers, log daily sales and supply, collect M-Pesa repayments, print payment plan agreements, and manage device access from one professional workspace.</p>
           <div class="ks-actions">
             <a class="ks-btn ks-btn-primary" href="/login">Sign in to admin</a>
             <a class="ks-btn ks-btn-ghost" href="#workflow">See how it works</a>
           </div>
           <dl class="ks-hero-facts">
             <div><dt>Collections</dt><dd>Cash, M-Pesa, Airtel, bank</dd></div>
-            <div><dt>Devices</dt><dd>Android agent &amp; Apple MDM</dd></div>
+            <div><dt>Documents</dt><dd>Sales, supply, payment plans</dd></div>
             <div><dt>Control</dt><dd>Limit, lock, restore remotely</dd></div>
           </dl>
         </div>
         <aside class="ks-hero-card" aria-label="Portfolio preview">
           <div class="ks-card-head">
-            <span>Admin overview</span>
-            <strong>Portfolio summary</strong>
+            <span>Admin workspace</span>
+            <strong>What you can run</strong>
           </div>
           <div class="ks-stat-row">
-            <div class="ks-stat"><span>Collected</span><strong>—</strong></div>
-            <div class="ks-stat"><span>Outstanding</span><strong>—</strong></div>
-            <div class="ks-stat"><span>Restricted</span><strong>—</strong></div>
+            <div class="ks-stat"><span>Contracts</span><strong>Onboard</strong></div>
+            <div class="ks-stat"><span>Sales log</span><strong>Daily</strong></div>
+            <div class="ks-stat"><span>Supply</span><strong>Partners</strong></div>
           </div>
           <ul class="ks-task-list">
-            <li><strong>Register contract</strong><span>Customer and IMEI</span><em>Ready</em></li>
-            <li><strong>Record payment</strong><span>Cash or M-Pesa</span><em>Ready</em></li>
+            <li><strong>Register payment plan</strong><span>Customer + device + deposit</span><em>Ready</em></li>
+            <li><strong>Print agreement</strong><span>English or 中文</span><em>Ready</em></li>
             <li><strong>Device policy</strong><span>Limit or restore</span><em>Ready</em></li>
           </ul>
         </aside>
@@ -1359,22 +1538,22 @@ function renderSaasLanding() {
           <article>
             <span class="ks-num">01</span>
             <h3>Register the sale</h3>
-            <p>Capture customer details, phone model, IMEI, deposit, and repayment plan.</p>
+            <p>Capture customer details, phone model, IMEI, deposit, and repayment plan — then print the agreement.</p>
           </article>
           <article>
             <span class="ks-num">02</span>
-            <h3>Record payments</h3>
-            <p>Post collections as they come in and keep the balance up to date.</p>
+            <h3>Log sales &amp; supply</h3>
+            <p>Key in sold phones and partner supply each day, then generate English or Chinese documents to share.</p>
           </article>
           <article>
             <span class="ks-num">03</span>
-            <h3>Follow up arrears</h3>
-            <p>See overdue accounts, send reminders, and apply approved restrictions.</p>
+            <h3>Collect &amp; follow up</h3>
+            <p>Record M-Pesa and cash payments, track arrears, and send reminders from one desk.</p>
           </article>
           <article>
             <span class="ks-num">04</span>
             <h3>Control devices</h3>
-            <p>Sync policy to enrolled Android agents or supervised iPhones.</p>
+            <p>Sync policy to enrolled Android agents — limit, lock, or restore when policy requires it.</p>
           </article>
         </div>
       </div>
@@ -1488,7 +1667,7 @@ function renderSaasLanding() {
   <footer class="ks-footer">
     <div class="ks-wrap ks-footer-grid">
       <div>
-        <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+        <a class="ks-logo" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
         <p>${shop}. Phone installment contracts, collections, and device policy.</p>
       </div>
       <div>
@@ -1532,7 +1711,7 @@ function renderLogin(error = "") {
 <body class="ks-auth">
   <div class="ks-auth-shell">
     <aside class="ks-auth-brand">
-      <a class="ks-logo light" href="/"><span class="ks-mark light" aria-hidden="true"></span>KISMART</a>
+      <a class="ks-logo light" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
       <h1>Admin workspace for installment operations</h1>
       <p>Manage contracts, payments, and device policy from one protected dashboard.</p>
       <ul>
@@ -1580,7 +1759,7 @@ function renderCustomerIntake(status = "") {
 <body class="ks-site ks-intake-page">
   <header class="ks-topbar">
     <div class="ks-wrap ks-topbar-inner">
-      <a class="ks-logo" href="/"><span class="ks-mark" aria-hidden="true"></span>KISMART</a>
+      <a class="ks-logo" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
       <nav class="ks-nav" aria-label="Intake">
         <a href="/">Home</a>
         <a href="/login">Admin</a>
@@ -1628,13 +1807,15 @@ function renderDashboard() {
   <div class="shell">
     <aside>
       <div class="brand">
-        <div class="brand-lockup"><span class="brand-logo" aria-hidden="true"></span><div class="brand-word">KISMART</div></div>
+        <div class="brand-lockup"><img class="brand-logo-img" src="/assets/logo.jpeg" alt="" width="28" height="28"><div class="brand-word">KISMART</div></div>
         <span>${shop}</span>
       </div>
       <nav aria-label="Primary">
         ${navItem("overview", "Overview", "overview", true)}
         ${navItem("contracts", "Contracts", "contracts")}
         ${navItem("register", "Register", "register")}
+        ${navItem("sales", "Sold phones", "sales")}
+        ${navItem("supply", "Supply", "supply")}
         ${navItem("inventory", "Inventory", "inventory")}
         ${navItem("payments", "Payments", "payments")}
         ${navItem("devices", "Devices", "devices")}
@@ -1674,6 +1855,8 @@ function navIcon(name: string) {
     overview: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect>',
     contracts: '<path d="M7 3h7l5 5v13H7z"></path><path d="M14 3v5h5"></path><path d="M10 13h7"></path><path d="M10 17h5"></path>',
     register: '<path d="M15 20v-1.5a4.5 4.5 0 0 0-9 0V20"></path><circle cx="10.5" cy="8" r="3.5"></circle><path d="M18 8v6"></path><path d="M15 11h6"></path>',
+    sales: '<path d="M4 7h16v12H4z"></path><path d="M8 7V5h8v2"></path><path d="M9 12h6"></path>',
+    supply: '<path d="M3 7h13v10H3z"></path><path d="M16 10h5v7h-5"></path><path d="M7 17v2"></path><path d="M19 17v2"></path>',
     inventory: '<path d="M4 8h16"></path><path d="M6 8v11h12V8"></path><path d="M8 5h8l2 3H6z"></path><rect x="9" y="11" width="6" height="6" rx="1"></rect>',
     payments: '<rect x="3" y="6" width="18" height="14" rx="2"></rect><path d="M3 10h18"></path><path d="M7 15h4"></path>',
     devices: '<rect x="7" y="2.5" width="10" height="19" rx="2"></rect><path d="M10 18h4"></path>',
@@ -3002,6 +3185,29 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   border-radius: 2px;
 }
 .ks-mark.light { background: #159a5f; }
+.ks-mark-img {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(13, 107, 69, .2);
+}
+.brand-logo-img {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  display: block;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, .35);
+}
+.ks-dash .brand-logo-img {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .2);
+}
 .ks-btn {
   display: inline-flex;
   align-items: center;
@@ -3517,6 +3723,55 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   margin-bottom: 18px !important;
   padding-bottom: 14px !important;
 }
+.ks-dash .doc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: end;
+  padding: 4px 2px 8px;
+}
+.ks-dash .doc-tools label {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+  color: #5a6b62;
+  font-size: 12px;
+  font-weight: 650;
+}
+.ks-dash .doc-tools input[type="date"] {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #c9d6ce;
+  border-radius: 8px;
+  background: #fff;
+  color: #14201a;
+  font: inherit;
+}
+.ks-dash .doc-tools .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ks-dash a.tiny {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #c9d6ce;
+  background: #fff;
+  color: #14201a;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.ks-dash a.tiny:hover { border-color: #0d6b45; color: #0d6b45; }
+.ks-dash .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+.ks-dash .form-grid label { display: grid; gap: 6px; }
+@media (max-width: 720px) {
+  .ks-dash .form-grid { grid-template-columns: 1fr; }
+}
 .ks-dash h1 { color: #14201a !important; font-weight: 750 !important; }
 .ks-dash .eyebrow { color: #0d6b45 !important; font-weight: 700 !important; letter-spacing: .05em !important; }
 .ks-dash .controls input,
@@ -3730,6 +3985,8 @@ const titles = {
   overview: ["Portfolio command", "Command Center"],
   contracts: ["Repayment ledger", "Portfolio"],
   register: ["Customer onboarding", "Onboarding"],
+  sales: ["Daily sales log", "Sold phones"],
+  supply: ["Partner supply log", "Supply"],
   inventory: ["Admin device stock", "Device Stock"],
   payments: ["Collections desk", "Collections"],
   devices: ["Device command queue", "Device Operations"],
@@ -3767,6 +4024,8 @@ document.addEventListener("click", async function (event) {
     if (target.dataset.action === "delete-contract") await api("/api/contracts/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "delete-intake") await api("/api/intakes/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "delete-inventory-device") await api("/api/inventory-devices/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+    if (target.dataset.action === "delete-sold-phone") await api("/api/sold-phones/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+    if (target.dataset.action === "delete-supply") await api("/api/supplies/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "run-automation") await api("/api/automation/run", { method: "POST", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "dispatch-notices") await api("/api/notifications/dispatch", { method: "POST", body: JSON.stringify({ role: role.value, limit: 50 }) });
     if (target.dataset.action === "dispatch-mdm") await api("/api/device-commands/dispatch", { method: "POST", body: JSON.stringify({ role: role.value, limit: 50 }) });
@@ -3846,6 +4105,8 @@ function render() {
   if (view === "overview") renderOverview();
   if (view === "contracts") renderContracts();
   if (view === "register") renderRegister();
+  if (view === "sales") renderSales();
+  if (view === "supply") renderSupply();
   if (view === "inventory") renderInventory();
   if (view === "payments") renderPayments();
   if (view === "devices") renderDevices();
@@ -3896,6 +4157,120 @@ function renderContracts() {
   app.innerHTML = '<section class="panel"><div class="panel-head"><div><h2>Financing Book</h2><p>Search by customer, phone, device, IMEI, branch, or payment reference.</p></div><button class="btn secondary" type="button" onclick="location.href=\'/api/export/contracts.csv\'">Export CSV</button></div>' + contractsTable(filteredContracts(), false) + '</section>';
 }
 
+function renderSales() {
+  const rows = (state.soldPhones || []).slice();
+  const today = todayIso();
+  app.innerHTML = [
+    '<section class="panel"><div class="panel-head"><div><h2>Log sold phone</h2><p>Key in phones sold each day — date, type, price, and notes — then generate a shareable document.</p></div><button class="btn" form="soldPhoneForm" type="submit">Save sale</button></div>',
+    '<form id="soldPhoneForm" class="form-grid">',
+    field("Date", "date", "date", true, today),
+    field("Phone type / model", "phoneType", "text", true),
+    field("Price (KES)", "price", "number", true),
+    field("Other details", "details", "text", false),
+    '</form></section>',
+    '<section class="panel"><div class="panel-head"><div><h2>Generate document</h2><p>Filter by date range, then open English or Chinese PDF-ready print view to share.</p></div></div>',
+    '<div class="doc-tools">',
+    '<label>From<input id="salesFrom" type="date" value="' + e(today) + '"></label>',
+    '<label>To<input id="salesTo" type="date" value="' + e(today) + '"></label>',
+    '<div class="actions">',
+    '<button class="btn secondary" type="button" id="salesDocEn">English document</button>',
+    '<button class="btn secondary" type="button" id="salesDocZh">中文文档</button>',
+    '</div></div></section>',
+    '<section class="panel"><div class="panel-head"><div><h2>Sales ledger</h2><p>' + rows.length + ' recorded sale(s).</p></div></div>' + soldPhonesTable(rows) + '</section>'
+  ].join("");
+  document.getElementById("soldPhoneForm").addEventListener("submit", submitSoldPhone);
+  document.getElementById("salesDocEn").addEventListener("click", function () { openSalesDoc("en"); });
+  document.getElementById("salesDocZh").addEventListener("click", function () { openSalesDoc("zh"); });
+}
+
+function renderSupply() {
+  const rows = (state.supplies || []).slice();
+  const today = todayIso();
+  app.innerHTML = [
+    '<section class="panel"><div class="panel-head"><div><h2>Log supply</h2><p>Record phones supplied to partners: who received them, their number, phone taken, and price given.</p></div><button class="btn" form="supplyForm" type="submit">Save supply</button></div>',
+    '<form id="supplyForm" class="form-grid">',
+    field("Date", "date", "date", true, today),
+    field("Supplied to", "suppliedTo", "text", true),
+    field("Phone number", "phoneNumber", "text", false),
+    field("Phone taken", "phoneTaken", "text", true),
+    field("Price given (KES)", "priceGiven", "number", true),
+    field("Notes", "details", "text", false),
+    '</form></section>',
+    '<section class="panel"><div class="panel-head"><div><h2>Generate document</h2><p>Create an English or Chinese supply report for the selected dates.</p></div></div>',
+    '<div class="doc-tools">',
+    '<label>From<input id="supplyFrom" type="date" value="' + e(today) + '"></label>',
+    '<label>To<input id="supplyTo" type="date" value="' + e(today) + '"></label>',
+    '<div class="actions">',
+    '<button class="btn secondary" type="button" id="supplyDocEn">English document</button>',
+    '<button class="btn secondary" type="button" id="supplyDocZh">中文文档</button>',
+    '</div></div></section>',
+    '<section class="panel"><div class="panel-head"><div><h2>Supply ledger</h2><p>' + rows.length + ' supply record(s).</p></div></div>' + suppliesTable(rows) + '</section>'
+  ].join("");
+  document.getElementById("supplyForm").addEventListener("submit", submitSupply);
+  document.getElementById("supplyDocEn").addEventListener("click", function () { openSupplyDoc("en"); });
+  document.getElementById("supplyDocZh").addEventListener("click", function () { openSupplyDoc("zh"); });
+}
+
+function soldPhonesTable(rows) {
+  if (!rows.length) return '<div class="empty">No sold phones logged yet.</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Phone type</th><th>Price</th><th>Details</th><th></th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      return '<tr><td>' + e(r.date) + '</td><td>' + e(r.phoneType) + '</td><td>' + money.format(r.price) + '</td><td>' + e(r.details || "—") + '</td><td><button class="tiny delete" data-action="delete-sold-phone" data-id="' + e(r.id) + '" data-confirm="Delete this sale?" type="button">Delete</button></td></tr>';
+    }).join("") +
+    '</tbody></table></div>';
+}
+
+function suppliesTable(rows) {
+  if (!rows.length) return '<div class="empty">No supply records yet.</div>';
+  return '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Supplied to</th><th>Phone</th><th>Phone taken</th><th>Price</th><th>Notes</th><th></th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      return '<tr><td>' + e(r.date) + '</td><td>' + e(r.suppliedTo) + '</td><td>' + e(r.phoneNumber || "—") + '</td><td>' + e(r.phoneTaken) + '</td><td>' + money.format(r.priceGiven) + '</td><td>' + e(r.details || "—") + '</td><td><button class="tiny delete" data-action="delete-supply" data-id="' + e(r.id) + '" data-confirm="Delete this supply record?" type="button">Delete</button></td></tr>';
+    }).join("") +
+    '</tbody></table></div>';
+}
+
+function openSalesDoc(lang) {
+  const from = document.getElementById("salesFrom").value;
+  const to = document.getElementById("salesTo").value;
+  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "" });
+  window.open("/docs/sold-phones?" + qs.toString(), "_blank");
+}
+
+function openSupplyDoc(lang) {
+  const from = document.getElementById("supplyFrom").value;
+  const to = document.getElementById("supplyTo").value;
+  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "" });
+  window.open("/docs/supplies?" + qs.toString(), "_blank");
+}
+
+async function submitSoldPhone(event) {
+  event.preventDefault();
+  try {
+    const body = Object.fromEntries(new FormData(event.target).entries());
+    body.role = role.value;
+    body.price = Number(body.price || 0);
+    await api("/api/sold-phones", { method: "POST", body: JSON.stringify(body) });
+    showToast("Sale logged");
+    await load();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function submitSupply(event) {
+  event.preventDefault();
+  try {
+    const body = Object.fromEntries(new FormData(event.target).entries());
+    body.role = role.value;
+    body.priceGiven = Number(body.priceGiven || 0);
+    await api("/api/supplies", { method: "POST", body: JSON.stringify(body) });
+    showToast("Supply logged");
+    await load();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function renderRegister() {
   const pendingIntakes = (state.intakes || []).filter(function (intake) { return intake.status === "Pending"; });
   const intakeOptions = ['<option value="">New walk-in customer</option>'].concat(pendingIntakes.map(function (intake) {
@@ -3903,7 +4278,7 @@ function renderRegister() {
   })).join("");
   app.innerHTML = [
     '<div class="layout">',
-    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields.</p></div><button class="btn" form="contractForm" type="submit">Save Contract</button></div>',
+    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields. After saving, print the payment plan agreement from Contracts.</p></div><button class="btn" form="contractForm" type="submit">Save Contract</button></div>',
     '<form id="contractForm">',
     '<input name="intakeId" type="hidden">',
     '<input name="inventoryDeviceId" type="hidden">',
@@ -4165,9 +4540,11 @@ function contractsTable(contracts, controls) {
     const deleteButton = '<button class="tiny delete" data-action="delete-contract" data-id="' + e(c.id) + '" data-confirm="' + e("Delete contract " + c.id + " for " + c.customer.name + "? This cannot be undone.") + '" type="button">Delete</button>';
     const bindingStatus = c.device.binding ? "Identity locked (same phone auto-recovers)" : "Identity not enrolled";
     const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
+    const planDocEn = '<a class="tiny" href="/docs/payment-plan/' + encodeURIComponent(c.id) + '?lang=en" target="_blank" rel="noreferrer">Print plan</a>';
+    const planDocZh = '<a class="tiny" href="/docs/payment-plan/' + encodeURIComponent(c.id) + '?lang=zh" target="_blank" rel="noreferrer">打印协议</a>';
     const controlButtons = controls
       ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button">Limit Use</button><button class="tiny danger" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button">Lock Phone</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
-      : '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
+      : planDocEn + planDocZh + '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
     return '<tr><td><div class="cell-main"><strong>' + e(c.customer.name) + '</strong><span>' + e(c.customer.phone + " - " + c.customer.branch) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.device.model) + '</strong><span>IMEI ' + e(c.device.imei) + '</span><span>' + e(bindingStatus) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.plan.frequency) + '</strong><span><span class="money-value">' + money.format(c.plan.installment) + '</span> installment</span></div></td><td class="money-cell">' + money.format(c.progress.paid) + '</td><td class="money-cell">' + money.format(c.progress.balance) + '</td><td class="money-cell">' + money.format(c.progress.arrears) + '</td><td>' + e(c.progress.nextDue || "Fully paid") + '</td><td>' + badge(c.status) + '</td><td><div class="actions">' + controlButtons + '</div></td></tr>';
   }).join("") + '</tbody></table></div>';
 }
@@ -4660,6 +5037,8 @@ function mergeState(firestoreState: AppState, jsonState: AppState): { state: App
   state.syncEvents = mergeCollections(state.syncEvents, jsonState.syncEvents);
   state.deviceEvents = mergeCollections(state.deviceEvents, jsonState.deviceEvents);
   state.inventoryDevices = mergeCollections(state.inventoryDevices, jsonState.inventoryDevices);
+  state.soldPhones = mergeCollections(state.soldPhones || [], jsonState.soldPhones || []);
+  state.supplies = mergeCollections(state.supplies || [], jsonState.supplies || []);
   state.audit = mergeCollections(state.audit, jsonState.audit);
 
   return { state, changed };
@@ -4936,9 +5315,13 @@ function normalizeState(state: AppState): AppState {
   state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
   state.intakes = Array.isArray(state.intakes) ? state.intakes : [];
   state.inventoryDevices = Array.isArray(state.inventoryDevices) ? state.inventoryDevices : [];
+  state.soldPhones = Array.isArray(state.soldPhones) ? state.soldPhones : [];
+  state.supplies = Array.isArray(state.supplies) ? state.supplies : [];
   state.audit = Array.isArray(state.audit) ? state.audit : [];
   state.contracts = Array.isArray(state.contracts) ? state.contracts : [];
   state.inventoryDevices = state.inventoryDevices.map(normalizeInventoryDevice);
+  state.soldPhones = state.soldPhones.map(normalizeSoldPhone);
+  state.supplies = state.supplies.map(normalizeSupply);
   state.contracts.forEach((contract) => {
     contract.device = {
       model: clean(contract.device?.model),
@@ -4972,6 +5355,30 @@ function normalizeInventoryDevice(device: any): InventoryDevice {
     status: device?.status === "Assigned" ? "Assigned" : "Available",
     assignedContractId: clean(device?.assignedContractId) || null,
     assignedAt: clean(device?.assignedAt) || null,
+  };
+}
+
+function normalizeSoldPhone(item: any): SoldPhoneRecord {
+  return {
+    id: clean(item?.id || uid("SALE")),
+    date: clean(item?.date || todayIso()).slice(0, 10),
+    phoneType: clean(item?.phoneType || item?.model || item?.type),
+    price: numberFrom(item?.price),
+    details: clean(item?.details || item?.notes),
+    createdAt: clean(item?.createdAt || nowIso()),
+  };
+}
+
+function normalizeSupply(item: any): SupplyRecord {
+  return {
+    id: clean(item?.id || uid("SUP")),
+    date: clean(item?.date || todayIso()).slice(0, 10),
+    suppliedTo: clean(item?.suppliedTo || item?.customer || item?.name),
+    phoneNumber: clean(item?.phoneNumber || item?.phone),
+    phoneTaken: clean(item?.phoneTaken || item?.phoneType || item?.model),
+    priceGiven: numberFrom(item?.priceGiven || item?.price),
+    details: clean(item?.details || item?.notes),
+    createdAt: clean(item?.createdAt || nowIso()),
   };
 }
 
@@ -5013,6 +5420,8 @@ function buildPublicState(state: AppState) {
     notifications: state.notifications,
     intakes: state.intakes,
     inventoryDevices: state.inventoryDevices.map((device) => enrichInventoryDevice(state, device)),
+    soldPhones: state.soldPhones || [],
+    supplies: state.supplies || [],
     audit: state.audit,
     settings: state.settings,
   };
@@ -6869,9 +7278,125 @@ function seedState(): AppState {
     notifications: [],
     intakes: [],
     inventoryDevices: [],
+    soldPhones: [],
+    supplies: [],
     audit: [],
     contracts: [],
   };
+}
+
+function normalizeDocLang(value: string | null | undefined): DocLang {
+  return String(value || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+function filterByDateRange<T>(items: T[], from: string, to: string, getDate: (item: T) => string): T[] {
+  return items.filter((item) => {
+    const d = clean(getDate(item)).slice(0, 10);
+    if (!d) return false;
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+}
+
+function createSoldPhoneFromPayload(body: any): SoldPhoneRecord {
+  const date = clean(body.date || todayIso()).slice(0, 10) || todayIso();
+  const phoneType = clean(body.phoneType || body.model || body.type);
+  if (!phoneType) throw new HttpError(400, "Phone type is required");
+  const price = numberFrom(body.price);
+  if (price < 0) throw new HttpError(400, "Price must be zero or more");
+  return {
+    id: uid("SALE"),
+    date,
+    phoneType,
+    price,
+    details: clean(body.details || body.notes),
+    createdAt: nowIso(),
+  };
+}
+
+function createSupplyFromPayload(body: any): SupplyRecord {
+  const date = clean(body.date || todayIso()).slice(0, 10) || todayIso();
+  const suppliedTo = clean(body.suppliedTo || body.customer || body.name);
+  const phoneNumber = clean(body.phoneNumber || body.phone);
+  const phoneTaken = clean(body.phoneTaken || body.phoneType || body.model);
+  if (!suppliedTo) throw new HttpError(400, "Supplied to is required");
+  if (!phoneTaken) throw new HttpError(400, "Phone taken is required");
+  const priceGiven = numberFrom(body.priceGiven || body.price);
+  if (priceGiven < 0) throw new HttpError(400, "Price given must be zero or more");
+  return {
+    id: uid("SUP"),
+    date,
+    suppliedTo,
+    phoneNumber,
+    phoneTaken,
+    priceGiven,
+    details: clean(body.details || body.notes),
+    createdAt: nowIso(),
+  };
+}
+
+function buildPaymentPlanHtml(contract: Contract, lang: DocLang) {
+  const progress = getProgress(contract);
+  const plan = contract.plan;
+  const interestFreeMonths = Math.max(1, Math.min(12, Math.floor(plan.periodCount || 3)));
+  // Skip deposit line from getSchedule — document lists deposit separately.
+  const installments = getSchedule(contract)
+    .filter((item) => String(item.label || "").toLowerCase() !== "deposit")
+    .map((item) => ({
+      dueDate: clean(item.dueDate).slice(0, 10),
+      amount: item.amount,
+    }));
+  const schedule = buildPaymentScheduleLabels(lang, plan.deposit, installments, interestFreeMonths);
+  if (schedule[0]) schedule[0].date = clean(contract.createdAt).slice(0, 10) || todayIso();
+  const finalDeadline =
+    installments[installments.length - 1]?.dueDate ||
+    dateToIso(addByFrequency(parseDate(contract.createdAt), plan.frequency, interestFreeMonths));
+  const year = (clean(contract.createdAt).slice(0, 4) || String(new Date().getFullYear()));
+  const agreementNo = `KIS-PP-${contract.id.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase()}/${year}`;
+  return renderPaymentPlanAgreement(
+    {
+      shopName: SHOP_NAME,
+      logoUrl: "/assets/logo.jpeg",
+      agreementNo,
+      agreementDate: formatDisplayDate(clean(contract.createdAt).slice(0, 10) || todayIso()),
+      customer: {
+        name: contract.customer.name,
+        nationalId: contract.customer.nationalId,
+        phone: contract.customer.phone,
+        address: contract.customer.address,
+        house: "",
+        altContactName: "",
+        altContactPhone: "",
+        relationship: "",
+      },
+      device: {
+        model: contract.device.model,
+        storageColour: "",
+        imei1: contract.device.imei,
+        imei2: contract.device.serial,
+        accessories: "",
+        condition: "",
+      },
+      plan: {
+        phoneValue: plan.devicePrice,
+        deposit: plan.deposit,
+        balance: Math.max(plan.devicePrice - plan.deposit, progress.balance),
+        interestFreeMonths,
+        lateInterest: 3000,
+        schedule,
+        finalDeadline: formatDisplayDate(finalDeadline),
+      },
+    },
+    lang
+  );
+}
+
+function formatDisplayDate(iso: string) {
+  const d = clean(iso).slice(0, 10);
+  if (!d || d.length < 10) return d || "—";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
 }
 
 function seedJsonState(): AppState {
@@ -7280,11 +7805,11 @@ async function initiateMpesaStkPushOnce(
 }
 
 /**
- * Detect Daraja "accepted then silently failed" cases (e.g. result 2029) so the phone
+ * Detect Daraja "accepted then silently failed" cases (e.g. result 2029/9999) so the phone
  * does not sit on "Waiting for M-Pesa..." with no PIN dialog.
  */
-async function confirmStkPromptAlive(checkoutRequestId: string): Promise<{ ok: boolean; code: number | null; desc: string }> {
-  const delays = [1500, 2000, 2500];
+async function confirmStkPromptAlive(checkoutRequestId: string): Promise<{ ok: boolean; code: number | null; desc: string; retryable: boolean }> {
+  const delays = [1800, 2200, 2800];
   for (const delay of delays) {
     await sleepMs(delay);
     try {
@@ -7292,29 +7817,33 @@ async function confirmStkPromptAlive(checkoutRequestId: string): Promise<{ ok: b
       if (status.resultCode === null || Number.isNaN(status.resultCode)) continue;
       // Still waiting for PIN or already paid — treat as prompt delivered / in flight.
       if (status.resultCode === 0 || status.resultCode === 4999) {
-        return { ok: true, code: status.resultCode, desc: status.resultDesc };
+        return { ok: true, code: status.resultCode, desc: status.resultDesc, retryable: false };
       }
       // User cancelled / wrong PIN etc. still means the STK UI appeared.
       if ([1032, 1037, 2001, 1, 1001, 1019, 2028].includes(status.resultCode)) {
-        return { ok: true, code: status.resultCode, desc: status.resultDesc };
+        return { ok: true, code: status.resultCode, desc: status.resultDesc, retryable: false };
       }
-      // Hard delivery / config failures — no usable PIN dialog.
-      if ([2029, 2002, 1025, 9999].includes(status.resultCode)) {
-        return { ok: false, code: status.resultCode, desc: status.resultDesc };
+      // Transient delivery failures — safe to re-issue STK.
+      if ([9999, 1025].includes(status.resultCode)) {
+        return { ok: false, code: status.resultCode, desc: status.resultDesc, retryable: true };
       }
-      return { ok: false, code: status.resultCode, desc: status.resultDesc };
+      // Hard config failures — no usable PIN dialog.
+      if ([2029, 2002].includes(status.resultCode)) {
+        return { ok: false, code: status.resultCode, desc: status.resultDesc, retryable: false };
+      }
+      return { ok: false, code: status.resultCode, desc: status.resultDesc, retryable: false };
     } catch (error) {
       console.warn(`[mpesa-stk] query failed for ${checkoutRequestId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   // No terminal status yet — leave as accepted (callback will finalize).
-  return { ok: true, code: null, desc: "pending" };
+  return { ok: true, code: null, desc: "pending", retryable: false };
 }
 
 /**
  * Initiate M-Pesa Express STK Push against Daraja production.
  * Default: CustomerBuyGoodsOnline with HO shortcode + Till PartyB (4749801 / 9257070).
- * Falls back to the other transaction type on Safaricom 2029 type mismatch.
+ * Retries on transient 9999/1025; falls back transaction type on 2029/2002.
  */
 async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkPushResult> {
   const primary = MPESA_TRANSACTION_TYPE;
@@ -7322,34 +7851,58 @@ async function initiateMpesaStkPush(input: MpesaStkPushInput): Promise<MpesaStkP
     primary === "CustomerBuyGoodsOnline" ? "CustomerPayBillOnline" : "CustomerBuyGoodsOnline";
   const types: Array<"CustomerPayBillOnline" | "CustomerBuyGoodsOnline"> = [primary, secondary];
   let lastError = "";
+  // Up to 3 push attempts per type for transient Safaricom 9999 "error while sending prompt".
+  const maxAttemptsPerType = 3;
 
   for (let i = 0; i < types.length; i += 1) {
     const transactionType = types[i];
-    try {
-      const result = await initiateMpesaStkPushOnce({ ...input, transactionType });
-      const alive = await confirmStkPromptAlive(result.CheckoutRequestID);
-      if (alive.ok) {
-        return result;
+    for (let attempt = 1; attempt <= maxAttemptsPerType; attempt += 1) {
+      try {
+        if (attempt > 1) {
+          console.warn(`[mpesa-stk] retry ${attempt}/${maxAttemptsPerType} type=${transactionType}`);
+          await sleepMs(800 * attempt);
+        }
+        const result = await initiateMpesaStkPushOnce({ ...input, transactionType });
+        const alive = await confirmStkPromptAlive(result.CheckoutRequestID);
+        if (alive.ok) {
+          return result;
+        }
+        lastError = `STK failed after accept (${alive.code}): ${alive.desc || "no PIN prompt"}`;
+        console.error(`[mpesa-stk] ${transactionType} partyB=${MPESA_PARTY_B} attempt=${attempt} ${lastError}`);
+
+        if (alive.retryable && attempt < maxAttemptsPerType) {
+          continue; // re-issue STK (9999 / 1025)
+        }
+        // Type mismatch: try the other STK product once.
+        if ((alive.code === 2029 || alive.code === 2002) && i < types.length - 1) {
+          console.warn(`[mpesa-stk] retrying with ${types[i + 1]} after ${alive.code}`);
+          break; // next type
+        }
+        throw new Error(
+          alive.code === 9999 || alive.code === 1025
+            ? `M-Pesa could not deliver the PIN prompt (${alive.code}). Often temporary — wait a few seconds and try Pay again. Ensure the phone number is a Safaricom M-Pesa line and not mid-transaction.`
+            : alive.code === 2029
+              ? `M-Pesa could not show the PIN prompt (2029 type mismatch). Config: type=${transactionType} shortcode=${PAYBILL_BUSINESS_NUMBER} till/partyB=${MPESA_PARTY_B}.`
+              : alive.code === 2002
+                ? `M-Pesa HO/Till mismatch (2002). BusinessShortCode=${PAYBILL_BUSINESS_NUMBER} PartyB=${MPESA_PARTY_B}. Confirm Till ${MPESA_PARTY_B} belongs under HO ${PAYBILL_BUSINESS_NUMBER}.`
+                : `M-Pesa STK prompt failed: ${alive.desc || "unknown"} (${alive.code})`
+        );
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (lastError.includes("9999") || lastError.includes("1025")) {
+          if (attempt < maxAttemptsPerType) continue;
+        }
+        if (i >= types.length - 1 && attempt >= maxAttemptsPerType) throw error;
+        if (lastError.includes("2029") || lastError.includes("2002")) {
+          if (i < types.length - 1) break;
+          throw error;
+        }
+        if (attempt >= maxAttemptsPerType) {
+          if (i >= types.length - 1) throw error;
+          break;
+        }
+        console.warn(`[mpesa-stk] ${transactionType} error attempt ${attempt}: ${lastError}`);
       }
-      lastError = `STK failed after accept (${alive.code}): ${alive.desc || "no PIN prompt"}`;
-      console.error(`[mpesa-stk] ${transactionType} partyB=${MPESA_PARTY_B} ${lastError}`);
-      // Type mismatch: try the other STK product once.
-      if ((alive.code === 2029 || alive.code === 2002) && i < types.length - 1) {
-        console.warn(`[mpesa-stk] retrying with ${types[i + 1]} after ${alive.code}`);
-        continue;
-      }
-      throw new Error(
-        alive.code === 2029
-          ? `M-Pesa could not show the PIN prompt (2029 type mismatch). Config: type=${transactionType} shortcode=${PAYBILL_BUSINESS_NUMBER} till/partyB=${MPESA_PARTY_B}.`
-          : alive.code === 2002
-            ? `M-Pesa HO/Till mismatch (2002). BusinessShortCode=${PAYBILL_BUSINESS_NUMBER} PartyB=${MPESA_PARTY_B}. Confirm Till ${MPESA_PARTY_B} belongs under HO ${PAYBILL_BUSINESS_NUMBER}.`
-            : `M-Pesa STK prompt failed: ${alive.desc || "unknown"} (${alive.code})`
-      );
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      if (i >= types.length - 1) throw error;
-      if (!lastError.includes("2029") && !lastError.includes("2002")) throw error;
-      console.warn(`[mpesa-stk] ${transactionType} error; trying next type: ${lastError}`);
     }
   }
 
