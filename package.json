@@ -13,6 +13,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "firebase-admin": "^13.10.0"
+    "firebase-admin": "^13.10.0",
+    "pdfkit": "^0.19.1"
   }
 }

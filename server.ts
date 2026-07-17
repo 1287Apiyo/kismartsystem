@@ -8,15 +8,10 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import {
-  buildPaymentScheduleLabels,
-  renderPaymentPlanAgreement,
-  renderSoldPhonesDocument,
-  renderSupplyDocument,
-  type DocLang,
-} from "./documents.ts";
 
 type Frequency = "Daily" | "Weekly" | "Monthly" | "Custom";
+/** Document language for printable PDF/HTML reports. */
+type DocLang = "en" | "zh";
 type Platform = "Android" | "iOS";
 type Status = "Active" | "Overdue" | "Restricted" | "Completed";
 type RestrictionLevel = "None" | "Lock screen message" | "Limited access" | "Full lock";
@@ -728,7 +723,7 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
-  // —— Printable documents (HTML → print / share) ——
+  // —— Printable documents (PDF by default; format=html for browser view) ——
   if (method === "GET" && url.pathname === "/docs/sold-phones") {
     if (!getAdminSession(request)) {
       sendRedirect(response, "/login");
@@ -739,14 +734,35 @@ async function routeRequest(request: any, response: any) {
     const from = clean(url.searchParams.get("from") || "");
     const to = clean(url.searchParams.get("to") || "");
     const rows = filterByDateRange(state.soldPhones || [], from, to, (r) => r.date);
+    const rangeFrom = from || (rows[rows.length - 1]?.date || todayIso());
+    const rangeTo = to || (rows[0]?.date || todayIso());
+    const format = clean(url.searchParams.get("format") || "pdf").toLowerCase();
+    const asDownload = url.searchParams.get("download") !== "0";
+    if (format !== "html") {
+      try {
+        const pdfMod = await loadPdfDocsModule();
+        const buffer = await pdfMod.buildSoldPhonesPdf({
+          shopName: SHOP_NAME,
+          lang,
+          from: rangeFrom,
+          to: rangeTo,
+          rows,
+        });
+        sendPdf(response, buffer, pdfMod.pdfFilename("sold-phones", lang), asDownload);
+        return;
+      } catch (error) {
+        console.error("[docs/sold-phones] PDF failed, falling back to HTML:", error);
+      }
+    }
+    const docs = await loadDocumentsModule();
     sendHtml(
       response,
-      renderSoldPhonesDocument({
+      docs.renderSoldPhonesDocument({
         shopName: SHOP_NAME,
         logoUrl: "/assets/logo.jpeg",
         lang,
-        from: from || (rows[rows.length - 1]?.date || todayIso()),
-        to: to || (rows[0]?.date || todayIso()),
+        from: rangeFrom,
+        to: rangeTo,
         rows,
       })
     );
@@ -763,14 +779,35 @@ async function routeRequest(request: any, response: any) {
     const from = clean(url.searchParams.get("from") || "");
     const to = clean(url.searchParams.get("to") || "");
     const rows = filterByDateRange(state.supplies || [], from, to, (r) => r.date);
+    const rangeFrom = from || (rows[rows.length - 1]?.date || todayIso());
+    const rangeTo = to || (rows[0]?.date || todayIso());
+    const format = clean(url.searchParams.get("format") || "pdf").toLowerCase();
+    const asDownload = url.searchParams.get("download") !== "0";
+    if (format !== "html") {
+      try {
+        const pdfMod = await loadPdfDocsModule();
+        const buffer = await pdfMod.buildSupplyPdf({
+          shopName: SHOP_NAME,
+          lang,
+          from: rangeFrom,
+          to: rangeTo,
+          rows,
+        });
+        sendPdf(response, buffer, pdfMod.pdfFilename("supplies", lang), asDownload);
+        return;
+      } catch (error) {
+        console.error("[docs/supplies] PDF failed, falling back to HTML:", error);
+      }
+    }
+    const docs = await loadDocumentsModule();
     sendHtml(
       response,
-      renderSupplyDocument({
+      docs.renderSupplyDocument({
         shopName: SHOP_NAME,
         logoUrl: "/assets/logo.jpeg",
         lang,
-        from: from || (rows[rows.length - 1]?.date || todayIso()),
-        to: to || (rows[0]?.date || todayIso()),
+        from: rangeFrom,
+        to: rangeTo,
         rows,
       })
     );
@@ -788,7 +825,21 @@ async function routeRequest(request: any, response: any) {
     const contract = state.contracts.find((c) => c.id === contractId);
     if (!contract) throw new HttpError(404, `Contract ${contractId} not found`);
     const lang = normalizeDocLang(url.searchParams.get("lang"));
-    sendHtml(response, buildPaymentPlanHtml(contract, lang));
+    const format = clean(url.searchParams.get("format") || "pdf").toLowerCase();
+    const asDownload = url.searchParams.get("download") !== "0";
+    if (format !== "html") {
+      try {
+        const pdfMod = await loadPdfDocsModule();
+        const docs = await loadDocumentsModule();
+        const payload = buildPaymentPlanPayload(contract, lang, docs.buildPaymentScheduleLabels);
+        const buffer = await pdfMod.buildPaymentPlanPdf(payload, lang);
+        sendPdf(response, buffer, pdfMod.pdfFilename("payment-plan", lang, contract.id), asDownload);
+        return;
+      } catch (error) {
+        console.error("[docs/payment-plan] PDF failed, falling back to HTML:", error);
+      }
+    }
+    sendHtml(response, await buildPaymentPlanHtml(contract, lang));
     return;
   }
 
@@ -4026,6 +4077,11 @@ document.addEventListener("click", async function (event) {
     if (target.dataset.action === "delete-inventory-device") await api("/api/inventory-devices/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "delete-sold-phone") await api("/api/sold-phones/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "delete-supply") await api("/api/supplies/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+    if (target.dataset.action === "print-plan") {
+      await downloadAndOpenPdf("/docs/payment-plan/" + encodeURIComponent(id) + "?lang=" + encodeURIComponent(target.dataset.lang || "en") + "&format=pdf&download=1", "payment-plan-" + id + ".pdf");
+      showToast("Payment plan PDF downloaded");
+      return;
+    }
     if (target.dataset.action === "run-automation") await api("/api/automation/run", { method: "POST", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "dispatch-notices") await api("/api/notifications/dispatch", { method: "POST", body: JSON.stringify({ role: role.value, limit: 50 }) });
     if (target.dataset.action === "dispatch-mdm") await api("/api/device-commands/dispatch", { method: "POST", body: JSON.stringify({ role: role.value, limit: 50 }) });
@@ -4038,6 +4094,38 @@ document.addEventListener("click", async function (event) {
     target.classList.remove("busy");
   }
 });
+
+async function downloadAndOpenPdf(url, fallbackName) {
+  const response = await fetch(url, { credentials: "same-origin" });
+  if (!response.ok) {
+    const text = await response.text();
+    let detail = "PDF generation failed";
+    try { detail = (JSON.parse(text).detail || detail); } catch (e) {}
+    throw new Error(detail);
+  }
+  const blob = await response.blob();
+  if (!blob || !blob.size) throw new Error("Empty PDF response");
+  let filename = fallbackName || "document.pdf";
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (match && match[1]) filename = match[1];
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } catch (e) {}
+  try {
+    window.open(blobUrl, "_blank", "noopener");
+  } catch (e) {
+    location.href = blobUrl;
+  }
+  window.setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 120000);
+}
 
 async function api(path, options) {
   const response = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
@@ -4229,18 +4317,28 @@ function suppliesTable(rows) {
     '</tbody></table></div>';
 }
 
-function openSalesDoc(lang) {
+async function openSalesDoc(lang) {
   const from = document.getElementById("salesFrom").value;
   const to = document.getElementById("salesTo").value;
-  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "" });
-  window.open("/docs/sold-phones?" + qs.toString(), "_blank");
+  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "", format: "pdf", download: "1" });
+  try {
+    await downloadAndOpenPdf("/docs/sold-phones?" + qs.toString(), "sold-phones.pdf");
+    showToast("Sales PDF downloaded");
+  } catch (error) {
+    showToast(error.message || "Could not generate sales PDF");
+  }
 }
 
-function openSupplyDoc(lang) {
+async function openSupplyDoc(lang) {
   const from = document.getElementById("supplyFrom").value;
   const to = document.getElementById("supplyTo").value;
-  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "" });
-  window.open("/docs/supplies?" + qs.toString(), "_blank");
+  const qs = new URLSearchParams({ lang: lang || "en", from: from || "", to: to || "", format: "pdf", download: "1" });
+  try {
+    await downloadAndOpenPdf("/docs/supplies?" + qs.toString(), "supplies.pdf");
+    showToast("Supply PDF downloaded");
+  } catch (error) {
+    showToast(error.message || "Could not generate supply PDF");
+  }
 }
 
 async function submitSoldPhone(event) {
@@ -4540,8 +4638,8 @@ function contractsTable(contracts, controls) {
     const deleteButton = '<button class="tiny delete" data-action="delete-contract" data-id="' + e(c.id) + '" data-confirm="' + e("Delete contract " + c.id + " for " + c.customer.name + "? This cannot be undone.") + '" type="button">Delete</button>';
     const bindingStatus = c.device.binding ? "Identity locked (same phone auto-recovers)" : "Identity not enrolled";
     const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
-    const planDocEn = '<a class="tiny" href="/docs/payment-plan/' + encodeURIComponent(c.id) + '?lang=en" target="_blank" rel="noreferrer">Print plan</a>';
-    const planDocZh = '<a class="tiny" href="/docs/payment-plan/' + encodeURIComponent(c.id) + '?lang=zh" target="_blank" rel="noreferrer">打印协议</a>';
+    const planDocEn = '<button class="tiny" data-action="print-plan" data-lang="en" data-id="' + e(c.id) + '" type="button">Print plan</button>';
+    const planDocZh = '<button class="tiny" data-action="print-plan" data-lang="zh" data-id="' + e(c.id) + '" type="button">打印协议</button>';
     const controlButtons = controls
       ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button">Limit Use</button><button class="tiny danger" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button">Lock Phone</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
       : planDocEn + planDocZh + '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
@@ -7336,11 +7434,29 @@ function createSupplyFromPayload(body: any): SupplyRecord {
   };
 }
 
-function buildPaymentPlanHtml(contract: Contract, lang: DocLang) {
+/** Lazy-load HTML document helpers so a missing file cannot crash the whole site on Vercel. */
+async function loadDocumentsModule() {
+  return import("./documents.ts");
+}
+
+/** Lazy-load PDF generators (pdfkit) so cold-start stays light and failures degrade to HTML. */
+async function loadPdfDocsModule() {
+  return import("./pdf-docs.ts");
+}
+
+function buildPaymentPlanPayload(
+  contract: Contract,
+  lang: DocLang,
+  buildPaymentScheduleLabels: (
+    lang: DocLang,
+    deposit: number,
+    installments: { dueDate: string; amount: number }[],
+    interestFreeMonths: number
+  ) => { stage: string; date: string; amount: number }[]
+) {
   const progress = getProgress(contract);
   const plan = contract.plan;
   const interestFreeMonths = Math.max(1, Math.min(12, Math.floor(plan.periodCount || 3)));
-  // Skip deposit line from getSchedule — document lists deposit separately.
   const installments = getSchedule(contract)
     .filter((item) => String(item.label || "").toLowerCase() !== "deposit")
     .map((item) => ({
@@ -7352,44 +7468,47 @@ function buildPaymentPlanHtml(contract: Contract, lang: DocLang) {
   const finalDeadline =
     installments[installments.length - 1]?.dueDate ||
     dateToIso(addByFrequency(parseDate(contract.createdAt), plan.frequency, interestFreeMonths));
-  const year = (clean(contract.createdAt).slice(0, 4) || String(new Date().getFullYear()));
+  const year = clean(contract.createdAt).slice(0, 4) || String(new Date().getFullYear());
   const agreementNo = `KIS-PP-${contract.id.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase()}/${year}`;
-  return renderPaymentPlanAgreement(
-    {
-      shopName: SHOP_NAME,
-      logoUrl: "/assets/logo.jpeg",
-      agreementNo,
-      agreementDate: formatDisplayDate(clean(contract.createdAt).slice(0, 10) || todayIso()),
-      customer: {
-        name: contract.customer.name,
-        nationalId: contract.customer.nationalId,
-        phone: contract.customer.phone,
-        address: contract.customer.address,
-        house: "",
-        altContactName: "",
-        altContactPhone: "",
-        relationship: "",
-      },
-      device: {
-        model: contract.device.model,
-        storageColour: "",
-        imei1: contract.device.imei,
-        imei2: contract.device.serial,
-        accessories: "",
-        condition: "",
-      },
-      plan: {
-        phoneValue: plan.devicePrice,
-        deposit: plan.deposit,
-        balance: Math.max(plan.devicePrice - plan.deposit, progress.balance),
-        interestFreeMonths,
-        lateInterest: 3000,
-        schedule,
-        finalDeadline: formatDisplayDate(finalDeadline),
-      },
+  return {
+    shopName: SHOP_NAME,
+    logoUrl: "/assets/logo.jpeg",
+    agreementNo,
+    agreementDate: formatDisplayDate(clean(contract.createdAt).slice(0, 10) || todayIso()),
+    customer: {
+      name: contract.customer.name,
+      nationalId: contract.customer.nationalId,
+      phone: contract.customer.phone,
+      address: contract.customer.address,
+      house: "",
+      altContactName: "",
+      altContactPhone: "",
+      relationship: "",
     },
-    lang
-  );
+    device: {
+      model: contract.device.model,
+      storageColour: "",
+      imei1: contract.device.imei,
+      imei2: contract.device.serial,
+      accessories: "",
+      condition: "",
+    },
+    plan: {
+      phoneValue: plan.devicePrice,
+      deposit: plan.deposit,
+      balance: Math.max(plan.devicePrice - plan.deposit, progress.balance),
+      interestFreeMonths,
+      lateInterest: 3000,
+      schedule,
+      finalDeadline: formatDisplayDate(finalDeadline),
+    },
+  };
+}
+
+async function buildPaymentPlanHtml(contract: Contract, lang: DocLang) {
+  const docs = await loadDocumentsModule();
+  const payload = buildPaymentPlanPayload(contract, lang, docs.buildPaymentScheduleLabels);
+  return docs.renderPaymentPlanAgreement(payload, lang);
 }
 
 function formatDisplayDate(iso: string) {
@@ -7397,6 +7516,19 @@ function formatDisplayDate(iso: string) {
   if (!d || d.length < 10) return d || "—";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
+}
+
+function sendPdf(response: any, body: Buffer, filename: string, asDownload = true) {
+  const safeName = String(filename || "document.pdf").replace(/[^\w.\-]+/g, "_");
+  const disposition = `${asDownload ? "attachment" : "inline"}; filename="${safeName}"`;
+  response.writeHead(200, {
+    ...responseHeaders("application/pdf"),
+    "Content-Type": "application/pdf",
+    "Content-Disposition": disposition,
+    "Content-Length": String(body.length),
+    "Cache-Control": "no-store",
+  });
+  response.end(body);
 }
 
 function seedJsonState(): AppState {

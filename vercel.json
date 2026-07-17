@@ -10,7 +10,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
-      "includeFiles": "{server.ts,assets/**,kismart-live-stk-firebase-adminsdk.json,kismart-live-stk-service-account.json,kismart-456ee-firebase-adminsdk-fbsvc-cb69615c3e.json,firebase-service-account.json,data/**}"
+      "includeFiles": "{server.ts,documents.ts,pdf-docs.ts,assets/**,kismart-live-stk-firebase-adminsdk.json,kismart-live-stk-service-account.json,kismart-456ee-firebase-adminsdk-fbsvc-cb69615c3e.json,firebase-service-account.json,data/**}"
     }
   }
 }
