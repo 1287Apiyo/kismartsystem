@@ -1506,237 +1506,165 @@ function renderSaasLanding() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d6b45">
-  <meta name="description" content="${shop} phone installment management for contracts, payments, and device control.">
-  <title>${shop} | Phone Installment Management</title>
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="${shop} — phone installment sales, M-Pesa collections, and remote device control for modern shops.">
+  <title>${shop} · Sell phones. Collect. Control.</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="ks-site">
-  <header class="ks-topbar">
-    <div class="ks-wrap ks-topbar-inner">
-      <a class="ks-logo" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
-      <nav class="ks-nav" aria-label="Primary">
-        <a href="#solutions">Solutions</a>
-        <a href="#workflow">Workflow</a>
-        <a href="#features">Features</a>
-        <a href="#security">Security</a>
+<body class="ks-land">
+  <header class="lp-nav">
+    <div class="lp-shell lp-nav-inner">
+      <a class="lp-brand" href="/">
+        <img src="/assets/logo.jpeg" alt="" width="32" height="32">
+        <span>KISMART</span>
+      </a>
+      <nav class="lp-links" aria-label="Primary">
+        <a href="#product">Product</a>
+        <a href="#ops">How it works</a>
+        <a href="#control">Control</a>
       </nav>
-      <div class="ks-top-actions">
-        <a class="ks-link" href="/login">Sign in</a>
-        <a class="ks-btn ks-btn-primary" href="/login">Open dashboard</a>
+      <div class="lp-nav-cta">
+        <a class="lp-link-quiet" href="/intake">Customer intake</a>
+        <a class="lp-btn lp-btn-solid" href="/login">Open admin</a>
       </div>
     </div>
   </header>
 
   <main>
-    <section class="ks-hero">
-      <div class="ks-wrap ks-hero-grid">
-        <div class="ks-hero-copy">
-          <p class="ks-kicker">KISMART Global · Installment operations</p>
-          <h1>Run financed phone sales with clarity and control.</h1>
-          <p class="ks-lead">Register customers, log daily sales and supply, collect M-Pesa repayments, print payment plan agreements, and manage device access from one professional workspace.</p>
-          <div class="ks-actions">
-            <a class="ks-btn ks-btn-primary" href="/login">Sign in to admin</a>
-            <a class="ks-btn ks-btn-ghost" href="#workflow">See how it works</a>
+    <section class="lp-hero" aria-label="Hero">
+      <div class="lp-hero-bg" aria-hidden="true">
+        <img src="/assets/landing-hero-bg.jpg" alt="" width="1600" height="1000" fetchpriority="high">
+        <div class="lp-hero-shade"></div>
+      </div>
+      <div class="lp-shell">
+        <div class="lp-hero-content">
+          <p class="lp-eyebrow">Phone installment operations</p>
+          <h1>Sell the phone today. Collect with confidence.</h1>
+          <p class="lp-hero-lead">
+            KISMART manages installment contracts, daily sales and supply logs, printable agreements, M-Pesa collections, and remote device limit until the balance is paid.
+          </p>
+          <div class="lp-hero-actions">
+            <a class="lp-btn lp-btn-solid lp-btn-lg" href="/login">Launch dashboard</a>
+            <a class="lp-btn lp-btn-outline-light lp-btn-lg" href="#product">See features</a>
           </div>
-          <dl class="ks-hero-facts">
-            <div><dt>Collections</dt><dd>Cash, M-Pesa, Airtel, bank</dd></div>
-            <div><dt>Documents</dt><dd>Sales, supply, payment plans</dd></div>
-            <div><dt>Control</dt><dd>Limit, lock, restore remotely</dd></div>
-          </dl>
-        </div>
-        <aside class="ks-hero-card" aria-label="Portfolio preview">
-          <div class="ks-card-head">
-            <span>Admin workspace</span>
-            <strong>What you can run</strong>
-          </div>
-          <div class="ks-stat-row">
-            <div class="ks-stat"><span>Contracts</span><strong>Onboard</strong></div>
-            <div class="ks-stat"><span>Sales log</span><strong>Daily</strong></div>
-            <div class="ks-stat"><span>Supply</span><strong>Partners</strong></div>
-          </div>
-          <ul class="ks-task-list">
-            <li><strong>Register payment plan</strong><span>Customer + device + deposit</span><em>Ready</em></li>
-            <li><strong>Print agreement</strong><span>English or 中文</span><em>Ready</em></li>
-            <li><strong>Device policy</strong><span>Limit or restore</span><em>Ready</em></li>
+          <ul class="lp-hero-points">
+            <li>M-Pesa STK prompts</li>
+            <li>PDF payment plans (EN + 中文)</li>
+            <li>Device limit until paid</li>
           </ul>
-        </aside>
-      </div>
-    </section>
-
-    <section class="ks-band" aria-label="Supported methods">
-      <div class="ks-wrap ks-band-inner">
-        <p>Works with</p>
-        <ul>
-          <li>M-Pesa</li>
-          <li>Airtel Money</li>
-          <li>Cash</li>
-          <li>Bank transfer</li>
-          <li>Android agent</li>
-          <li>Apple MDM</li>
-        </ul>
-      </div>
-    </section>
-
-    <section class="ks-section" id="solutions">
-      <div class="ks-wrap">
-        <div class="ks-section-head">
-          <p class="ks-kicker">Solutions</p>
-          <h2>Day-to-day tools for the installment desk</h2>
-          <p>Keep customer records, balances, due dates, and device status together so the team does not rely on separate spreadsheets.</p>
         </div>
-        <div class="ks-quad">
-          <article>
-            <span class="ks-num">01</span>
-            <h3>Register the sale</h3>
-            <p>Capture customer details, phone model, IMEI, deposit, and repayment plan — then print the agreement.</p>
+      </div>
+    </section>
+
+    <section class="lp-section" id="product">
+      <div class="lp-shell">
+        <div class="lp-section-head">
+          <p class="lp-eyebrow">Product</p>
+          <h2>What the shop desk runs every day</h2>
+          <p>One admin workspace for contracts, collections, documents, and device policy.</p>
+        </div>
+        <div class="lp-features">
+          <article class="lp-feature">
+            <p class="lp-tag">Collections</p>
+            <h3>Cash, M-Pesa, Airtel, bank</h3>
+            <p>Post payments to the right account. Balances and arrears update for the team.</p>
           </article>
-          <article>
-            <span class="ks-num">02</span>
-            <h3>Log sales &amp; supply</h3>
-            <p>Key in sold phones and partner supply each day, then generate English or Chinese documents to share.</p>
+          <article class="lp-feature">
+            <p class="lp-tag">Onboarding</p>
+            <h3>Register financed phones</h3>
+            <p>Customer, IMEI, deposit, and plan — then print the payment agreement to sign.</p>
           </article>
-          <article>
-            <span class="ks-num">03</span>
-            <h3>Collect &amp; follow up</h3>
-            <p>Record M-Pesa and cash payments, track arrears, and send reminders from one desk.</p>
+          <article class="lp-feature">
+            <p class="lp-tag">Devices</p>
+            <h3>Enroll, limit, restore</h3>
+            <p>Unpaid handsets stay on the pay screen until M-Pesa clears the balance.</p>
           </article>
-          <article>
-            <span class="ks-num">04</span>
-            <h3>Control devices</h3>
-            <p>Sync policy to enrolled Android agents — limit, lock, or restore when policy requires it.</p>
+          <article class="lp-feature">
+            <p class="lp-tag">Documents</p>
+            <h3>Sales and supply PDFs</h3>
+            <p>Daily sold-phone logs and partner supply sheets in English or Chinese.</p>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="ks-section ks-section-alt" id="workflow">
-      <div class="ks-wrap ks-split">
-        <div class="ks-section-head tight">
-          <p class="ks-kicker">Workflow</p>
-          <h2>From first deposit to final repayment</h2>
-          <p>A clear operating path for branch staff and managers.</p>
+    <section class="lp-section lp-section-alt" id="ops">
+      <div class="lp-shell">
+        <div class="lp-section-head">
+          <p class="lp-eyebrow">How it works</p>
+          <h2>From shelf to final installment</h2>
         </div>
-        <ol class="ks-steps">
-          <li>
-            <strong>Sign in to admin</strong>
-            <p>Use the protected dashboard for contracts, payments, and device actions.</p>
-          </li>
-          <li>
-            <strong>Enroll the handset</strong>
-            <p>Install the device agent, enter the registered IMEI, and complete the first sync.</p>
-          </li>
-          <li>
-            <strong>Manage the book</strong>
-            <p>Record payments and apply limit or restore when policy requires it.</p>
-          </li>
-        </ol>
-      </div>
-    </section>
-
-    <section class="ks-section" id="features">
-      <div class="ks-wrap">
-        <div class="ks-section-head">
-          <p class="ks-kicker">Features</p>
-          <h2>What the system covers</h2>
-        </div>
-        <div class="ks-features">
+        <div class="lp-steps">
           <article>
-            <img src="/assets/feature-register.jpg" alt="Customer using a smartphone" width="640" height="360" loading="lazy">
-            <div class="ks-feature-body">
-              <p class="ks-tag">Contracts</p>
-              <h3>Customer and device records</h3>
-              <p>Name, phone, national ID, IMEI, plan, branch, and control profile on one contract.</p>
-            </div>
+            <span>1</span>
+            <h3>Capture the deal</h3>
+            <p>Intake or full registration with plan templates and stock presets.</p>
           </article>
           <article>
-            <img src="/assets/feature-payment.jpg" alt="Phone payment at a counter" width="640" height="360" loading="lazy">
-            <div class="ks-feature-body">
-              <p class="ks-tag">Payments</p>
-              <h3>Collections ledger</h3>
-              <p>Deposits, cash, M-Pesa, Airtel Money, and bank payments against the right account.</p>
-            </div>
+            <span>2</span>
+            <h3>Print and hand over</h3>
+            <p>Generate the payment plan PDF, get signatures, enroll the device agent.</p>
           </article>
           <article>
-            <img src="/assets/feature-arrears.jpg" alt="Dashboard used for account follow-up" width="640" height="360" loading="lazy">
-            <div class="ks-feature-body">
-              <p class="ks-tag">Operations</p>
-              <h3>Arrears and notices</h3>
-              <p>Due dates, arrears totals, warning stages, and restore after payment.</p>
-            </div>
+            <span>3</span>
+            <h3>Collect payments</h3>
+            <p>STK prompts, cash posts, arrears views, and limit when accounts fall behind.</p>
           </article>
           <article>
-            <img src="/assets/feature-sync.jpg" alt="Smartphone for device sync" width="640" height="360" loading="lazy">
-            <div class="ks-feature-body">
-              <p class="ks-tag">Devices</p>
-              <h3>Policy sync</h3>
-              <p>Android agent and Apple MDM routes for limit, lock, restore, and event history.</p>
-            </div>
+            <span>4</span>
+            <h3>Log sales and supply</h3>
+            <p>Cash sales and partner supply documented daily for the books.</p>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="ks-section ks-section-alt" id="security">
-      <div class="ks-wrap">
-        <div class="ks-section-head">
-          <p class="ks-kicker">Security</p>
-          <h2>Built for controlled device finance</h2>
+    <section class="lp-section" id="control">
+      <div class="lp-shell lp-split">
+        <div class="lp-split-copy">
+          <p class="lp-eyebrow">Why shops use KISMART</p>
+          <h2>Protect stock. Keep customers. Get paid.</h2>
+          <ul class="lp-checklist">
+            <li>Payment plan agreements that match your shop process</li>
+            <li>Remote limit and full lock when accounts fall behind</li>
+            <li>Admin login and device sync secrets kept separate</li>
+            <li>Public HTTPS so phones sync on mobile data, not only shop Wi‑Fi</li>
+          </ul>
+          <div class="lp-hero-actions">
+            <a class="lp-btn lp-btn-solid" href="/login">Sign in to admin</a>
+            <a class="lp-btn lp-btn-outline" href="/intake">Customer intake</a>
+          </div>
         </div>
-        <div class="ks-security">
-          <article>
-            <h3>Admin sessions</h3>
-            <p>Dashboard access is session protected for authorized operators only.</p>
-          </article>
-          <article>
-            <h3>Device sync secret</h3>
-            <p>Phone agents use a separate secret from admin login credentials.</p>
-          </article>
-          <article>
-            <h3>Handset binding</h3>
-            <p>First trusted sync binds the contract to the enrolled phone identity.</p>
-          </article>
+        <div class="lp-split-visual">
+          <img src="/assets/landing-hero-bg.jpg" alt="Phone lineup" loading="lazy">
         </div>
       </div>
     </section>
 
-    <section class="ks-cta" id="contact">
-      <div class="ks-wrap ks-cta-inner">
+    <section class="lp-cta">
+      <div class="lp-shell lp-cta-inner">
         <div>
-          <p class="ks-kicker light">Admin access</p>
-          <h2>Open the dashboard to manage live accounts</h2>
-          <p>Sign in for contracts, collections, and device operations. Use the intake form for new customer details.</p>
+          <h2>Open the desk. Run today’s book.</h2>
+          <p>Contracts, collections, sales logs, supply docs, and device control — one login.</p>
         </div>
-        <div class="ks-actions">
-          <a class="ks-btn ks-btn-on-dark" href="/login">Sign in</a>
-          <a class="ks-btn ks-btn-outline-light" href="/intake">Customer intake</a>
-        </div>
+        <a class="lp-btn lp-btn-solid lp-btn-lg" href="/login">Enter ${shop} admin</a>
       </div>
     </section>
   </main>
 
-  <footer class="ks-footer">
-    <div class="ks-wrap ks-footer-grid">
-      <div>
-        <a class="ks-logo" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
-        <p>${shop}. Phone installment contracts, collections, and device policy.</p>
+  <footer class="lp-footer">
+    <div class="lp-shell lp-footer-inner">
+      <a class="lp-brand" href="/">
+        <img src="/assets/logo.jpeg" alt="" width="28" height="28">
+        <span>KISMART</span>
+      </a>
+      <p>${shop} · Imports. Products. Possibilities.</p>
+      <div class="lp-footer-links">
+        <a href="/login">Admin</a>
+        <a href="/intake">Intake</a>
+        <a href="#product">Product</a>
+        <span>v${VERSION}</span>
       </div>
-      <div>
-        <strong>Product</strong>
-        <a href="#solutions">Solutions</a>
-        <a href="#features">Features</a>
-        <a href="#workflow">Workflow</a>
-      </div>
-      <div>
-        <strong>Access</strong>
-        <a href="/login">Admin login</a>
-        <a href="/intake">Customer intake</a>
-        <span>Version ${VERSION}</span>
-      </div>
-    </div>
-    <div class="ks-wrap ks-footer-meta">
-      <span>Admin sessions protected</span>
-      <span>Device sync uses a separate secret</span>
     </div>
   </footer>
 </body>
@@ -3976,6 +3904,454 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   .ks-task-list li { grid-template-columns: 1fr auto !important; }
   .ks-task-list span { display: none; }
   .ks-wrap { width: min(100% - 28px, 1120px); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   KISMART landing — clean solid layout (ks-land)
+   ═══════════════════════════════════════════════════════════ */
+.ks-land {
+  margin: 0;
+  color: #e8f0eb;
+  background: #0a0a0a;
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.ks-land * { box-sizing: border-box; }
+.lp-shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+
+/* Nav — solid dark bar */
+.lp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: #0a0a0a;
+  border-bottom: 1px solid #1c1c1c;
+}
+.lp-nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+}
+.lp-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #ffffff;
+  font-weight: 750;
+  font-size: 16px;
+  text-decoration: none;
+}
+.lp-brand img {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #fff;
+  border: 1px solid #2a2a2a;
+}
+.lp-links { display: flex; gap: 24px; }
+.lp-links a {
+  color: #a8b5ae;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.lp-links a:hover { color: #ffffff; }
+.lp-nav-cta { display: flex; align-items: center; gap: 14px; }
+.lp-link-quiet {
+  color: #a8b5ae;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.lp-link-quiet:hover { color: #ffffff; }
+
+/* Buttons — solid only */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+.lp-btn-lg { min-height: 48px; padding: 0 20px; font-size: 15px; }
+.lp-btn-solid {
+  color: #ffffff;
+  background: #0d6b45;
+  border-color: #0d6b45;
+}
+.lp-btn-solid:hover { background: #0b5a3a; border-color: #0b5a3a; }
+.lp-btn-outline {
+  color: #e8f0eb;
+  background: transparent;
+  border-color: #3a3a3a;
+}
+.lp-btn-outline:hover { border-color: #0d6b45; color: #ffffff; }
+
+/* Hero — full-bleed phones image; copy aligned to product shell, spans full width */
+.lp-hero {
+  position: relative;
+  min-height: min(88vh, 760px);
+  display: flex;
+  align-items: center;
+  padding: 96px 0 72px;
+  overflow: hidden;
+  border-bottom: 1px solid #0a1210;
+  background: #0b1511;
+}
+.lp-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.lp-hero-bg img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+}
+/* Even dark wash so type reads across the full content width */
+.lp-hero-shade {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 14, 11, 0.72);
+}
+/* Same horizontal track as Product cards (Collections … Documents) */
+.lp-hero .lp-shell {
+  position: relative;
+  z-index: 1;
+}
+.lp-hero-content {
+  width: 100%;
+  text-align: left;
+  /* Matches .lp-features 4-card row: start at Collections, end at Documents */
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.lp-eyebrow {
+  margin: 0 0 12px;
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.lp-hero .lp-eyebrow { color: #9fd4b8; }
+.lp-hero h1 {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  color: #ffffff;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.12;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+.lp-hero-lead {
+  margin: 18px 0 0;
+  width: 100%;
+  max-width: 100%;
+  color: #c5d6cc;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.lp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+  width: 100%;
+}
+.lp-btn-outline-light {
+  color: #ffffff;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.lp-btn-outline-light:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.lp-hero-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+}
+.lp-hero-points li {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(8, 14, 11, 0.55);
+  color: #e8f0eb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Sections — black page, soft card panels */
+.lp-section {
+  padding: 64px 0;
+  background: #0a0a0a;
+  border-bottom: 1px solid #1c1c1c;
+}
+.lp-section-alt { background: #0f0f0f; }
+.lp-section-head {
+  max-width: 560px;
+  margin-bottom: 28px;
+}
+.lp-section-head h2 {
+  margin: 0 0 10px;
+  color: #ffffff;
+  font-size: clamp(22px, 2.8vw, 28px);
+  line-height: 1.2;
+  font-weight: 750;
+  letter-spacing: -.015em;
+}
+.lp-section-head p:not(.lp-eyebrow) {
+  margin: 0;
+  color: #9aa8a0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* Product cards — 4 across, text only, centered */
+.lp-features {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.lp-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  padding: 24px 18px 26px;
+  border: 1px solid #242424;
+  border-radius: 12px;
+  background: #121212;
+  min-height: 180px;
+}
+.lp-section-alt .lp-feature { background: #141414; }
+.lp-tag {
+  margin: 0 0 10px;
+  color: #4ade80;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.lp-feature h3 {
+  margin: 0 0 10px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  max-width: 16em;
+}
+.lp-feature p:not(.lp-tag) {
+  margin: 0;
+  color: #9aa8a0;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 22em;
+}
+
+/* Steps */
+.lp-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.lp-steps article {
+  padding: 20px 18px;
+  border: 1px solid #242424;
+  border-radius: 12px;
+  background: #121212;
+}
+.lp-steps span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #0d6b45;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 750;
+}
+.lp-steps h3 {
+  margin: 14px 0 8px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+}
+.lp-steps p {
+  margin: 0;
+  color: #9aa8a0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Split control section */
+.lp-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+}
+.lp-split-copy h2 {
+  margin: 0;
+  max-width: 440px;
+  color: #ffffff;
+  font-size: clamp(22px, 2.8vw, 28px);
+  line-height: 1.2;
+  font-weight: 750;
+}
+.lp-checklist {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.lp-checklist li {
+  position: relative;
+  padding: 12px 14px 12px 36px;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  background: #121212;
+  color: #c5d0ca;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.lp-checklist li::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #0d6b45;
+}
+.lp-split-visual {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #242424;
+  background: #111111;
+  aspect-ratio: 4 / 3;
+}
+.lp-split-visual img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* CTA */
+.lp-cta {
+  background: #000000;
+  border-top: 1px solid #1c1c1c;
+  border-bottom: 1px solid #1c1c1c;
+  padding: 48px 0;
+}
+.lp-cta-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.lp-cta h2 {
+  margin: 0 0 8px;
+  color: #ffffff;
+  font-size: clamp(22px, 2.8vw, 28px);
+  font-weight: 750;
+  line-height: 1.2;
+}
+.lp-cta p {
+  margin: 0;
+  max-width: 480px;
+  color: #9aa8a0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Footer */
+.lp-footer {
+  background: #0a0a0a;
+  border-top: 1px solid #1c1c1c;
+  padding: 24px 0 28px;
+}
+.lp-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.lp-footer p {
+  margin: 0;
+  color: #7a8780;
+  font-size: 13px;
+}
+.lp-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+.lp-footer-links a,
+.lp-footer-links span {
+  color: #7a8780;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.lp-footer-links a:hover { color: #4ade80; }
+
+@media (max-width: 900px) {
+  .lp-links { display: none; }
+  .lp-split,
+  .lp-steps { grid-template-columns: 1fr; }
+  .lp-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp-split-visual { aspect-ratio: 16 / 10; max-height: 320px; }
+  .lp-cta-inner { flex-direction: column; align-items: flex-start; }
+  .lp-hero {
+    min-height: min(78vh, 640px);
+    align-items: flex-end;
+    padding: 88px 0 48px;
+  }
+  .lp-hero-shade {
+    background: rgba(8, 14, 11, 0.78);
+  }
+}
+@media (max-width: 640px) {
+  .lp-shell { width: min(100% - 28px, 1120px); }
+  .lp-link-quiet { display: none; }
+  .lp-hero {
+    min-height: min(72vh, 560px);
+    padding: 80px 0 40px;
+  }
+  .lp-hero h1 { font-size: clamp(28px, 8vw, 36px); }
+  .lp-section { padding: 48px 0; }
+  .lp-features { grid-template-columns: 1fr; }
+  .lp-steps { grid-template-columns: 1fr; }
 }
 
 `;
