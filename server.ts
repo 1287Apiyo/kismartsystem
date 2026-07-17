@@ -979,8 +979,10 @@ async function routeRequest(request: any, response: any) {
   const devicePolicyMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/policy$/);
   if (method === "GET" && devicePolicyMatch) {
     assertDeviceSecret(request);
-    const state = await loadState();
+    // Always read latest contract balances from Firestore/JSON so limit screen does not flap on stale cache.
+    const state = await loadState({ forceRefresh: true });
     const contract = findContractByImeiOrThrow(state, decodeURIComponent(devicePolicyMatch[1]));
+    await refreshContractFromStorage(state, contract.id);
     const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request), "Policy pull");
     const automaticControls = applyAutomaticPaymentControls(state, [contract]);
     if (!identityCheck.allowed) {
@@ -997,8 +999,9 @@ async function routeRequest(request: any, response: any) {
   if (method === "POST" && deviceSyncMatch) {
     assertDeviceSecret(request);
     const body = await readJson(request);
-    const state = await loadState();
+    const state = await loadState({ forceRefresh: true });
     const contract = findContractByImeiOrThrow(state, decodeURIComponent(deviceSyncMatch[1]));
+    await refreshContractFromStorage(state, contract.id);
     const deviceEventIdsBefore = new Set(state.deviceEvents.map((event) => event.id));
     const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request, body), "Policy sync");
     const automaticControls = applyAutomaticPaymentControls(state, [contract]);
@@ -1009,6 +1012,7 @@ async function routeRequest(request: any, response: any) {
     }
     const appliedCommands = acknowledgeDeviceCommands(state, contract, readAppliedDeviceCommandIds(body));
     const commands = currentPendingDeviceCommands(state, contract).map(deviceCommandPayload);
+    const policy = buildDevicePolicy(state, contract, identityCheck.bindingToken);
     const policySyncEvent = recordDeviceEvent(state, contract, "Policy sync", "Online", clean(body.message || "Device synced with backend policy"), {
       appVersion: clean(body.appVersion || "unknown"),
       network: clean(body.network || "unknown"),
@@ -1016,6 +1020,9 @@ async function routeRequest(request: any, response: any) {
       commandsDelivered: commands.length,
       commandsApplied: appliedCommands.length,
       identity: contract.device.binding ? "verified" : "pending",
+      balance: policy.balance,
+      arrears: policy.arrears,
+      paymentOnlyActive: Boolean(policy.paymentOnly?.active),
       offlineSafe: true,
     });
     queueDeviceRuntimeSave(state, mergeRuntimeSaveChanges(identityCheck.changes, automaticControls.changes, {
@@ -1025,7 +1032,7 @@ async function routeRequest(request: any, response: any) {
         .map((event) => event.id),
     }));
     sendJson(response, 200, {
-      policy: buildDevicePolicy(state, contract, identityCheck.bindingToken),
+      policy,
       commands,
       appliedCommands,
       delivery: {
@@ -4357,7 +4364,11 @@ load().then(startLiveUpdates).catch(function (error) { showToast(error.message);
 `;
 }
 
-async function loadState(): Promise<AppState> {
+async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppState> {
+  if (options.forceRefresh) {
+    cachedState = null;
+    cachedJsonMtimeMs = 0;
+  }
   if (cachedState) {
     if (isFirestoreStorage() || !(await jsonStateFileChanged())) {
       return cachedState;
@@ -4373,6 +4384,35 @@ async function loadState(): Promise<AppState> {
   }
   cachedState = await loadJsonState();
   return cachedState;
+}
+
+/**
+ * Re-read one contract from Firestore so device limit decisions use the latest paid/balance fields.
+ */
+async function refreshContractFromStorage(state: AppState, contractId: string) {
+  if (!isFirestoreStorage() || !contractId) return;
+  try {
+    const firestore = getFirestoreDb();
+    const snapshot = await withTimeout(
+      firestore.collection(FIRESTORE_RECORD_COLLECTIONS.contracts).doc(contractId).get(),
+      FIRESTORE_OPERATION_TIMEOUT_MS,
+      "Firestore contract refresh timed out"
+    );
+    if (!snapshot.exists) return;
+    const raw = { id: snapshot.id, ...(snapshot.data() || {}) } as Contract;
+    const normalized = normalizeState({
+      ...state,
+      contracts: [raw],
+    }).contracts[0];
+    if (!normalized) return;
+    const index = state.contracts.findIndex((item) => item.id === contractId);
+    if (index >= 0) state.contracts[index] = normalized;
+    else state.contracts.unshift(normalized);
+    cachedState = state;
+  } catch (error) {
+    // Keep in-memory contract if refresh fails; policy still uses latest known payments.
+    console.error(`Contract refresh failed for ${contractId}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function loadJsonState(): Promise<AppState> {
@@ -5218,13 +5258,18 @@ function applyRestriction(state: AppState, contract: Contract, level: Restrictio
   return event;
 }
 
-function restoreDevice(state: AppState, contract: Contract, action: string) {
+function restoreDevice(
+  state: AppState,
+  contract: Contract,
+  action: string,
+  options: { holdAutoRestrict?: boolean } = {}
+) {
   contract.restriction = {
     active: false,
     level: "None",
     appliedAt: null,
-    // Keep the phone unlocked after admin restore even if arrears remain, until admin locks again.
-    holdAutoRestrict: true,
+    // Admin restore holds auto-limit; automatic balance/arrears restores leave hold off so future overdue can re-limit.
+    holdAutoRestrict: options.holdAutoRestrict ?? true,
   };
   supersedePendingDeviceCommands(state, contract, "Restore");
   const provider = deviceCommandProvider(contract);
@@ -5252,39 +5297,67 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
 
   contracts.forEach((contract) => {
     const progress = getProgress(contract);
-    if (progress.arrears <= 0) {
+    const limitedActive = isLimitedAccessRestriction(contract.restriction);
+    const fullLockActive = contract.restriction.active && contract.restriction.level === "Full lock";
+
+    // Fully paid (no remaining balance) → always clear limit/lock. Source of truth is contract payments/balance.
+    if (!hasPayableBalance(progress)) {
       if (!contract.restriction.active && !contract.restriction.holdAutoRestrict) return;
       if (!contract.restriction.active && contract.restriction.holdAutoRestrict) {
         contract.restriction.holdAutoRestrict = false;
         changes.contractIds?.push(contract.id);
         return;
       }
-      const { event, audit } = restoreDevice(state, contract, "Automatic restoration after arrears cleared");
-      // Paid-up accounts do not need a long-lived hold.
-      contract.restriction.holdAutoRestrict = false;
+      const { event, audit } = restoreDevice(state, contract, "Automatic restoration after balance cleared", {
+        holdAutoRestrict: false,
+      });
       changes.contractIds?.push(contract.id);
       changes.syncEventIds?.push(event.id);
       changes.auditIds?.push(audit.id);
       actions.push({
         contractId: contract.id,
         type: "Restore",
-        message: "Arrears cleared; restore command queued automatically.",
+        message: "No payable balance remaining; restore command queued automatically.",
       });
       return;
     }
 
-    if (contract.restriction.active) return;
-    // Respect admin Restore: do not immediately re-lock on the next phone sync while arrears remain.
+    // Overdue amount cleared but financed balance remains: drop automatic Limited access only (not Full lock).
+    if (!hasOverduePayableBalance(progress) && limitedActive) {
+      const { event, audit } = restoreDevice(state, contract, "Automatic restoration after overdue balance cleared", {
+        holdAutoRestrict: false,
+      });
+      changes.contractIds?.push(contract.id);
+      changes.syncEventIds?.push(event.id);
+      changes.auditIds?.push(audit.id);
+      actions.push({
+        contractId: contract.id,
+        type: "Restore",
+        message: "Overdue balance cleared; limit screen released automatically.",
+      });
+      return;
+    }
+
+    if (contract.restriction.active || fullLockActive) return;
+    // Respect admin Restore until admin locks again.
     if (contract.restriction.holdAutoRestrict) return;
+    // Automatic limit screen only when there is still a financed balance AND an overdue amount to pay.
+    if (!hasOverduePayableBalance(progress)) return;
+
     const event = applyRestriction(state, contract, "Limited access");
-    const audit = addAudit(state, "System", "Automatic payment limit applied", `${contract.id} - ${formatKes(progress.arrears)} arrears`);
+    const audit = addAudit(
+      state,
+      "System",
+      "Automatic payment limit applied",
+      `${contract.id} - balance ${formatKes(progress.balance)}, overdue ${formatKes(progress.arrears)}`
+    );
     changes.contractIds?.push(contract.id);
     changes.syncEventIds?.push(event.id);
     changes.auditIds?.push(audit.id);
     actions.push({
       contractId: contract.id,
       type: "Restriction",
-      message: `Limited access queued automatically for ${formatKes(progress.arrears)} arrears.`,
+      message: `Limited access queued automatically for payable balance ${formatKes(progress.balance)} (overdue ${formatKes(progress.arrears)}).`,
     });
   });
 
@@ -5293,6 +5366,23 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     actions,
     changes,
   };
+}
+
+function hasPayableBalance(progress: Progress) {
+  return numberFrom(progress.balance) > 0;
+}
+
+function hasOverduePayableBalance(progress: Progress) {
+  return hasPayableBalance(progress) && numberFrom(progress.arrears) > 0;
+}
+
+function isLimitedAccessRestriction(restriction: RestrictionState | null | undefined) {
+  return Boolean(restriction?.active && restriction.level === "Limited access");
+}
+
+/** Phone-facing limit screen: Limited access AND remaining balance from latest payments. */
+function shouldEnforcePaymentLimit(contract: Contract, progress = getProgress(contract)) {
+  return isLimitedAccessRestriction(contract.restriction) && hasPayableBalance(progress);
 }
 
 function startAutomaticPaymentControlLoop() {
@@ -5793,11 +5883,31 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
   const progress = getProgress(contract);
   const pendingCommands = currentPendingDeviceCommands(state, contract)
     .map(deviceCommandPayload);
-  const restrictionMessage =
-    progress.arrears > 0
-      ? `${contract.customer.name}, your account has ${formatKes(progress.arrears)} overdue. Payment plan must be adhered to.`
-      : "Account is currently in good standing.";
-  const paymentOnlyActive = contract.restriction.active && contract.restriction.level === "Limited access";
+  const hasBalance = hasPayableBalance(progress);
+  const paymentOnlyActive = shouldEnforcePaymentLimit(contract, progress);
+  const fullLockActive =
+    Boolean(contract.restriction.active && contract.restriction.level === "Full lock" && hasBalance);
+  // Never send a sticky limit/lock to the phone when the financed balance is already cleared.
+  const effectiveRestriction: RestrictionState = paymentOnlyActive || fullLockActive
+    ? {
+        active: true,
+        level: paymentOnlyActive ? "Limited access" : "Full lock",
+        appliedAt: contract.restriction.appliedAt || todayIso(),
+        holdAutoRestrict: Boolean(contract.restriction.holdAutoRestrict),
+      }
+    : {
+        active: false,
+        level: "None",
+        appliedAt: null,
+        holdAutoRestrict: Boolean(contract.restriction.holdAutoRestrict),
+      };
+  const restrictionMessage = paymentOnlyActive
+    ? `${contract.customer.name}, you still have ${formatKes(progress.balance)} to pay` +
+      (progress.arrears > 0 ? ` (${formatKes(progress.arrears)} overdue)` : "") +
+      `. Open KISMART to pay.`
+    : hasBalance
+      ? "Account is currently in good standing."
+      : "Account is fully paid. Device access restored.";
   return {
     service: SHOP_NAME,
     serverTime: nowIso(),
@@ -5822,13 +5932,24 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
     balance: progress.balance,
     arrears: progress.arrears,
     nextDue: progress.nextDue,
-    restriction: contract.restriction,
+    nextAmount: progress.nextAmount,
+    restriction: effectiveRestriction,
     pendingCommands,
     customerMessage: restrictionMessage,
     allowedPaymentPackages: paymentOnlyActive ? [ANDROID_AGENT_PACKAGE] : PAYMENT_APP_PACKAGES,
     paymentOnly: {
+      // Limit screen is driven only by payable balance + Limited access from shared storage.
       active: paymentOnlyActive,
       label: "KISMART-only mode",
+      reason: paymentOnlyActive
+        ? progress.arrears > 0
+          ? "overdue-payable-balance"
+          : "payable-balance"
+        : hasBalance
+          ? "no-limit"
+          : "balance-cleared",
+      balance: progress.balance,
+      arrears: progress.arrears,
       allowedPackages: [ANDROID_AGENT_PACKAGE],
       emergencyDial: "112",
       allowedSystemActions: [],
@@ -7014,6 +7135,34 @@ async function runSelfTest() {
     sdk: "34",
   }, "Self-test foreign handset");
   if (otherPhone.allowed) throw new Error("Expected different physical handset to be blocked until Reset ID");
+
+  // Limit screen only while a payable balance remains.
+  const limitContract = state.contracts[0];
+  limitContract.restriction = { active: true, level: "Limited access", appliedAt: todayIso(), holdAutoRestrict: false };
+  limitContract.payments = [
+    {
+      id: uid("PAY"),
+      date: dateToIso(addDays(today(), -15)),
+      method: "Deposit",
+      reference: "DEP-LIMIT",
+      amount: 2000,
+      status: "Synced",
+    },
+  ];
+  const limitedPolicy = buildDevicePolicy(state, limitContract);
+  if (!limitedPolicy.paymentOnly?.active) throw new Error("Expected limit screen while balance remains");
+  if (!(limitedPolicy.balance > 0)) throw new Error("Expected payable balance for limit screen");
+  limitContract.payments.push({
+    id: uid("PAY"),
+    date: todayIso(),
+    method: "M-Pesa",
+    reference: "FULL-PAY",
+    amount: 20000,
+    status: "Synced",
+  });
+  const paidPolicy = buildDevicePolicy(state, limitContract);
+  if (paidPolicy.paymentOnly?.active) throw new Error("Expected no limit screen after balance is cleared");
+  if (paidPolicy.restriction?.active) throw new Error("Expected restriction cleared in policy when balance is zero");
 
   console.log(
     JSON.stringify(
