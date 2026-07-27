@@ -5,9 +5,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
-import type { DocLang, PaymentPlanDocInput, SoldPhoneRow, SupplyRow } from "./documents.ts";
+import type { DocLang, PaymentPlanDocInput, SoldPhoneRow, SupplyRow } from "./documents.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+type PdfDoc = InstanceType<typeof PDFDocument>;
 
 const GREEN = "#0d6b45";
 const INK = "#14201a";
@@ -19,7 +20,7 @@ function money(n: number) {
   return `KES ${v.toLocaleString("en-KE")}`;
 }
 
-function collectBuffers(doc: PDFKit.PDFDocument): Promise<Buffer> {
+function collectBuffers(doc: PdfDoc): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -65,7 +66,7 @@ function resolveFontPaths(lang: DocLang) {
   return { regular, bold };
 }
 
-function registerFonts(doc: PDFKit.PDFDocument, lang: DocLang) {
+function registerFonts(doc: PdfDoc, lang: DocLang) {
   const { regular, bold } = resolveFontPaths(lang);
   let body = "Helvetica";
   let heading = "Helvetica-Bold";
@@ -107,7 +108,7 @@ function logoPath() {
 }
 
 function drawHeader(
-  doc: PDFKit.PDFDocument,
+  doc: PdfDoc,
   fonts: { body: string; heading: string; unicode: boolean },
   title: string,
   metaLines: string[]
@@ -142,14 +143,14 @@ function drawHeader(
   doc.fillColor(INK);
 }
 
-function ensureSpace(doc: PDFKit.PDFDocument, need: number) {
+function ensureSpace(doc: PdfDoc, need: number) {
   const bottom = doc.page.height - doc.page.margins.bottom;
   if (doc.y + need > bottom) {
     doc.addPage();
   }
 }
 
-function sectionTitle(doc: PDFKit.PDFDocument, fonts: { heading: string; unicode: boolean }, title: string) {
+function sectionTitle(doc: PdfDoc, fonts: { heading: string; unicode: boolean }, title: string) {
   ensureSpace(doc, 28);
   doc.moveDown(0.4);
   doc.font(fonts.heading).fontSize(11).fillColor(GREEN).text(safeText(title, fonts.unicode));
@@ -158,7 +159,7 @@ function sectionTitle(doc: PDFKit.PDFDocument, fonts: { heading: string; unicode
 }
 
 function kvTable(
-  doc: PDFKit.PDFDocument,
+  doc: PdfDoc,
   fonts: { body: string; heading: string; unicode: boolean },
   rows: [string, string][]
 ) {
@@ -191,7 +192,7 @@ function kvTable(
 }
 
 function simpleTable(
-  doc: PDFKit.PDFDocument,
+  doc: PdfDoc,
   fonts: { body: string; heading: string; unicode: boolean },
   headers: string[],
   rows: string[][],
