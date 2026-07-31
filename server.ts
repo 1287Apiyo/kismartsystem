@@ -643,10 +643,10 @@ async function routeRequest(request: any, response: any) {
     const state = await loadState();
     validateInventoryDevicePayload(state, body);
     const device = createInventoryDeviceFromPayload(body);
+    await saveFirestoreCoreRecord("inventoryDevices", device.id, device, true);
     state.inventoryDevices.unshift(device);
     addAudit(state, body.role || "Admin", "Inventory device added", `${device.model} - ${device.imei || device.serial || device.id}`);
-    await saveState(state, { requireFirestore: true });
-    await saveFirestoreCoreRecord("inventoryDevices", device.id, device, true);
+    queueStateSave(state, "Inventory device state save");
     sendJson(response, 201, enrichInventoryDevice(state, device));
     return;
   }
@@ -855,9 +855,9 @@ async function routeRequest(request: any, response: any) {
     markIntakeConverted(state, body.intakeId, contract.id);
     const assignedDevice = markInventoryDeviceAssigned(state, body.inventoryDeviceId, contract);
     addAudit(state, body.role || "Admin", "Contract created", contract.id);
-    await saveState(state, { requireFirestore: true });
     await saveFirestoreCoreRecord("contracts", contract.id, contract, true);
     if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice, true);
+    queueStateSave(state, "Contract state save");
     sendJson(response, 201, enrichContract(contract));
     return;
   }
@@ -882,9 +882,9 @@ async function routeRequest(request: any, response: any) {
     });
     const releasedDevices = releaseInventoryDevice(state, contract.id);
     addAudit(state, body.role || "Admin", "Contract deleted", `${contract.id} - ${contract.customer.name}`);
-    await saveState(state, { requireFirestore: true });
     await deleteFirestoreCoreRecord("contracts", contract.id, true);
     await Promise.all(releasedDevices.map((device) => saveFirestoreCoreRecord("inventoryDevices", device.id, device, true)));
+    queueStateSave(state, "Contract delete state save");
     sendJson(response, 200, { ok: true, deleted: contract.id });
     return;
   }
@@ -902,8 +902,8 @@ async function routeRequest(request: any, response: any) {
     if (linkedContract) throw new HttpError(409, `Device is assigned to contract ${linkedContract.id}`);
     const [device] = state.inventoryDevices.splice(index, 1);
     addAudit(state, body.role || "Admin", "Inventory device deleted", `${device.model} - ${device.imei || device.serial || device.id}`);
-    await saveState(state, { requireFirestore: true });
     await deleteFirestoreCoreRecord("inventoryDevices", device.id, true);
+    queueStateSave(state, "Inventory device delete state save");
     sendJson(response, 200, { ok: true, deleted: device.id });
     return;
   }
@@ -5501,6 +5501,14 @@ async function saveState(state: AppState, options: { requireFirestore?: boolean 
   broadcastStateChange();
 }
 
+function queueStateSave(state: AppState, label: string) {
+  cachedState = state;
+  broadcastStateChange();
+  void saveState(state).catch((error) => {
+    console.error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
 function queueDeviceRuntimeSave(
   state: AppState,
   changes: RuntimeSaveChanges
@@ -5569,7 +5577,7 @@ async function jsonStateMtimeMs() {
 async function loadFirestoreState(): Promise<AppState> {
   const firestore = getFirestoreDb();
   const jsonState = existsSync(DATA_FILE) ? await loadJsonState() : seedState();
-  const topLevelState = await loadFirestoreCollectionState(firestore);
+  const coreCollectionState = await loadFirestoreCoreCollectionState(firestore);
 
   // Load both Firestore shapes. Older deploys and Firebase Console checks may write/read
   // top-level collections, while newer deploys also keep the compact single state doc.
@@ -5580,33 +5588,34 @@ async function loadFirestoreState(): Promise<AppState> {
     const legacyState = data.state || (looksLikeAppState(data) ? data : null);
     if (legacyState) {
       let fireState = normalizeState(legacyState as AppState);
-      if (hasFirestoreCollectionData(topLevelState)) {
-        fireState = mergeState(fireState, normalizeState(topLevelState.state)).state;
+      if (hasFirestoreCollectionData(coreCollectionState)) {
+        fireState = mergeState(fireState, normalizeState(coreCollectionState.state)).state;
       }
       const mergedState = mergeState(fireState, jsonState);
       if (mergedState.changed) {
-        await saveFirestoreState(mergedState.state);
+        queueStateSave(mergedState.state, "Merged Firestore state save");
       }
       return mergedState.state;
     }
   }
 
   // One-time migration path: import top-level collections into the single-doc format.
+  const topLevelState = await loadFirestoreCollectionState(firestore);
   if (hasFirestoreCollectionData(topLevelState)) {
     const fireState = normalizeState(topLevelState.state);
     const mergedState = mergeState(fireState, jsonState);
-    await saveFirestoreState(mergedState.state);
+    queueStateSave(mergedState.state, "Migrated Firestore state save");
     return mergedState.state;
   }
 
   const nestedState = await loadFirestoreCollectionState(getFirestoreStateDoc());
   if (hasFirestoreCollectionData(nestedState)) {
     const state = mergeState(normalizeState(nestedState.state), jsonState).state;
-    await saveFirestoreState(state);
+    queueStateSave(state, "Nested Firestore state save");
     return state;
   }
 
-  await saveFirestoreState(jsonState);
+  queueStateSave(jsonState, "Initial Firestore state save");
   return jsonState;
 }
 
@@ -5840,6 +5849,29 @@ async function loadFirestoreCollectionState(doc: any) {
       inventoryDevices: sortByDateDesc(inventoryDevices, (item) => item.createdAt),
       audit: sortByDateDesc(audit, (item) => item.time),
     } as AppState,
+  };
+}
+
+async function loadFirestoreCoreCollectionState(firestore: any) {
+  const [contracts, inventoryDevices, intakes] = await Promise.all([
+    readFirestoreCollection<Contract>(firestore, FIRESTORE_RECORD_COLLECTIONS.contracts),
+    readFirestoreCollection<InventoryDevice>(firestore, FIRESTORE_RECORD_COLLECTIONS.inventoryDevices),
+    readFirestoreCollection<IntakeRecord>(firestore, FIRESTORE_RECORD_COLLECTIONS.intakes),
+  ]);
+  const state = seedState();
+  state.contracts = sortByDateDesc(contracts, (item) => item.createdAt);
+  state.inventoryDevices = sortByDateDesc(inventoryDevices, (item) => item.createdAt);
+  state.intakes = sortByDateDesc(intakes, (item) => item.time);
+  return {
+    hasSettings: false,
+    contracts: state.contracts,
+    intakes: state.intakes,
+    notifications: [],
+    syncEvents: [],
+    deviceEvents: [],
+    inventoryDevices: state.inventoryDevices,
+    audit: [],
+    state,
   };
 }
 
