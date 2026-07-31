@@ -5569,15 +5569,20 @@ async function jsonStateMtimeMs() {
 async function loadFirestoreState(): Promise<AppState> {
   const firestore = getFirestoreDb();
   const jsonState = existsSync(DATA_FILE) ? await loadJsonState() : seedState();
+  const topLevelState = await loadFirestoreCollectionState(firestore);
 
-  // Prefer single-document state (1 read) so free-tier projects do not burn daily read quota
-  // by scanning every contracts/syncEvents/deviceEvents collection on each request.
+  // Load both Firestore shapes. Older deploys and Firebase Console checks may write/read
+  // top-level collections, while newer deploys also keep the compact single state doc.
+  // Merging every time prevents new contracts from "disappearing" behind a stale state doc.
   const singleDoc = await getFirestoreStateDoc().get();
   if (singleDoc.exists) {
     const data = singleDoc.data() || {};
     const legacyState = data.state || (looksLikeAppState(data) ? data : null);
     if (legacyState) {
-      const fireState = normalizeState(legacyState as AppState);
+      let fireState = normalizeState(legacyState as AppState);
+      if (hasFirestoreCollectionData(topLevelState)) {
+        fireState = mergeState(fireState, normalizeState(topLevelState.state)).state;
+      }
       const mergedState = mergeState(fireState, jsonState);
       if (mergedState.changed) {
         await saveFirestoreState(mergedState.state);
@@ -5587,7 +5592,6 @@ async function loadFirestoreState(): Promise<AppState> {
   }
 
   // One-time migration path: import top-level collections into the single-doc format.
-  const topLevelState = await loadFirestoreCollectionState(firestore);
   if (hasFirestoreCollectionData(topLevelState)) {
     const fireState = normalizeState(topLevelState.state);
     const mergedState = mergeState(fireState, jsonState);
@@ -5612,11 +5616,20 @@ function mergeState(firestoreState: AppState, jsonState: AppState): { state: App
 
   const mergeCollections = <T extends { id: string }>(fireItems: T[], jsonItems: T[]) => {
     const items = [...fireItems];
-    const fireIds = new Set(items.map((i) => i.id));
+    const fireIndexById = new Map(items.map((item, index) => [item.id, index]));
     jsonItems.forEach((jsonItem) => {
-      if (!fireIds.has(jsonItem.id)) {
-        items.unshift(jsonItem);
+      const index = fireIndexById.get(jsonItem.id);
+      if (index == null) {
+        fireIndexById.set(jsonItem.id, items.length);
+        items.push(jsonItem);
         changed = true;
+      } else {
+        const existing = JSON.stringify(items[index]);
+        const incoming = JSON.stringify(jsonItem);
+        if (existing !== incoming) {
+          items[index] = jsonItem;
+          changed = true;
+        }
       }
     });
     return items;
