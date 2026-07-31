@@ -138,6 +138,7 @@ interface RestrictionState {
 interface Contract {
   id: string;
   createdAt: string;
+  inventoryDeviceId: string | null;
   customer: Customer;
   device: Device;
   plan: Plan;
@@ -645,6 +646,7 @@ async function routeRequest(request: any, response: any) {
     state.inventoryDevices.unshift(device);
     addAudit(state, body.role || "Admin", "Inventory device added", `${device.model} - ${device.imei || device.serial || device.id}`);
     await saveState(state);
+    await saveFirestoreCoreRecord("inventoryDevices", device.id, device);
     sendJson(response, 201, enrichInventoryDevice(state, device));
     return;
   }
@@ -851,9 +853,11 @@ async function routeRequest(request: any, response: any) {
     const contract = createContractFromPayload(body);
     state.contracts.unshift(contract);
     markIntakeConverted(state, body.intakeId, contract.id);
-    markInventoryDeviceAssigned(state, body.inventoryDeviceId, contract);
+    const assignedDevice = markInventoryDeviceAssigned(state, body.inventoryDeviceId, contract);
     addAudit(state, body.role || "Admin", "Contract created", contract.id);
     await saveState(state);
+    await saveFirestoreCoreRecord("contracts", contract.id, contract);
+    if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice);
     sendJson(response, 201, enrichContract(contract));
     return;
   }
@@ -876,9 +880,11 @@ async function routeRequest(request: any, response: any) {
         intake.convertedContractId = "";
       }
     });
-    releaseInventoryDevice(state, contract.id);
+    const releasedDevices = releaseInventoryDevice(state, contract.id);
     addAudit(state, body.role || "Admin", "Contract deleted", `${contract.id} - ${contract.customer.name}`);
     await saveState(state);
+    await deleteFirestoreCoreRecord("contracts", contract.id);
+    await Promise.all(releasedDevices.map((device) => saveFirestoreCoreRecord("inventoryDevices", device.id, device)));
     sendJson(response, 200, { ok: true, deleted: contract.id });
     return;
   }
@@ -897,6 +903,7 @@ async function routeRequest(request: any, response: any) {
     const [device] = state.inventoryDevices.splice(index, 1);
     addAudit(state, body.role || "Admin", "Inventory device deleted", `${device.model} - ${device.imei || device.serial || device.id}`);
     await saveState(state);
+    await deleteFirestoreCoreRecord("inventoryDevices", device.id);
     sendJson(response, 200, { ok: true, deleted: device.id });
     return;
   }
@@ -4904,6 +4911,7 @@ function bindRegistrationHelpers() {
   });
   applyPlanTemplate(form, true);
   bindPreservedForm(form, function () {
+    syncInventoryDeviceSelection(form);
     applyPlanTemplate(form, false);
   });
 }
@@ -4932,12 +4940,32 @@ function applyDevicePreset(form) {
   setFormValue(form, "controlProfile", preset.controlProfile);
   if (preset.price !== "") setFormValue(form, "devicePrice", preset.price);
   applyPlanTemplate(form, true);
+  saveFormDraft(form);
 }
 
 function clearInventoryDeviceSelection(form) {
   if (!form.elements.inventoryDeviceId.value) return;
   setFormValue(form, "inventoryDeviceId", "");
   setFormValue(form, "devicePreset", "custom");
+}
+
+function syncInventoryDeviceSelection(form) {
+  if (!form || !form.elements.inventoryDeviceId) return;
+  const options = deviceOptions();
+  const selected = options.find(function (item) { return item.id === form.elements.devicePreset.value; });
+  if (selected && selected.inventoryDeviceId) {
+    setFormValue(form, "inventoryDeviceId", selected.inventoryDeviceId);
+    return;
+  }
+  const imei = onlyDigits(form.elements.imei.value);
+  const serial = cleanSerialText(form.elements.serial.value);
+  const matched = ((state && state.inventoryDevices) || []).find(function (device) {
+    if (device.status === "Assigned") return false;
+    return (!!imei && device.imei === imei) || (!!serial && device.serial === serial);
+  });
+  if (!matched) return;
+  setFormValue(form, "inventoryDeviceId", matched.id);
+  setFormValue(form, "devicePreset", "inventory:" + matched.id);
 }
 
 function applyPlanTemplate(form, updateDeposit) {
@@ -4996,6 +5024,7 @@ function cleanPhoneText(value) {
 async function submitContract(event) {
   event.preventDefault();
   try {
+    syncInventoryDeviceSelection(event.target);
     const body = Object.fromEntries(new FormData(event.target).entries());
     body.role = role.value;
     await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
@@ -5631,6 +5660,38 @@ async function saveFirestoreState(state: AppState) {
   ]);
 }
 
+async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, value: unknown) {
+  if (!isFirestoreStorage() || !id) return;
+  try {
+    const collectionName = FIRESTORE_RECORD_COLLECTIONS[collectionKey];
+    await withTimeout(
+      getFirestoreDb().collection(collectionName).doc(id).set(toFirestoreRecord(value)),
+      FIRESTORE_OPERATION_TIMEOUT_MS,
+      `Firestore ${collectionName}/${id} save timed out`
+    );
+  } catch (error) {
+    console.error(
+      `Firestore core record save failed for ${collectionKey}/${id}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+async function deleteFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string) {
+  if (!isFirestoreStorage() || !id) return;
+  try {
+    const collectionName = FIRESTORE_RECORD_COLLECTIONS[collectionKey];
+    await withTimeout(
+      getFirestoreDb().collection(collectionName).doc(id).delete(),
+      FIRESTORE_OPERATION_TIMEOUT_MS,
+      `Firestore ${collectionName}/${id} delete timed out`
+    );
+  } catch (error) {
+    console.error(
+      `Firestore core record delete failed for ${collectionKey}/${id}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 /** Keep only the newest operational rows so one Firestore doc stays under size limits. */
 function compactStateForStorage(state: AppState): AppState {
   const keep = (items: any[], max: number) => (Array.isArray(items) ? items.slice(0, max) : []);
@@ -5877,6 +5938,7 @@ function normalizeState(state: AppState): AppState {
   state.soldPhones = state.soldPhones.map(normalizeSoldPhone);
   state.supplies = state.supplies.map(normalizeSupply);
   state.contracts.forEach((contract) => {
+    contract.inventoryDeviceId = clean((contract as any).inventoryDeviceId) || null;
     contract.device = {
       model: clean(contract.device?.model),
       imei: cleanDigits(contract.device?.imei),
@@ -5992,7 +6054,9 @@ function enrichContract(contract: Contract) {
 
 function enrichInventoryDevice(state: AppState, device: InventoryDevice) {
   const financedContract = state.contracts.find((contract) => {
-    return (device.imei && contract.device.imei === device.imei) || (device.serial && contract.device.serial === device.serial);
+    return contract.inventoryDeviceId === device.id
+      || (device.imei && contract.device.imei === device.imei)
+      || (device.serial && contract.device.serial === device.serial);
   });
   return {
     ...device,
@@ -6072,23 +6136,32 @@ function validateInventoryDevicePayload(state: AppState, body: any) {
   }
 }
 
-function markInventoryDeviceAssigned(state: AppState, inventoryDeviceId: unknown, contract: Contract) {
+function markInventoryDeviceAssigned(state: AppState, inventoryDeviceId: unknown, contract: Contract): InventoryDevice | null {
   const id = clean(inventoryDeviceId);
-  if (!id) return;
-  const device = state.inventoryDevices.find((item) => item.id === id);
-  if (!device) return;
+  const device = state.inventoryDevices.find((item) => item.id === id)
+    || state.inventoryDevices.find((item) => {
+      if (item.assignedContractId && item.assignedContractId !== contract.id) return false;
+      return (!!item.imei && item.imei === contract.device.imei)
+        || (!!item.serial && item.serial === contract.device.serial);
+    });
+  if (!device) return null;
+  contract.inventoryDeviceId = device.id;
   device.status = "Assigned";
   device.assignedContractId = contract.id;
   device.assignedAt = nowIso();
+  return device;
 }
 
-function releaseInventoryDevice(state: AppState, contractId: string) {
+function releaseInventoryDevice(state: AppState, contractId: string): InventoryDevice[] {
+  const released: InventoryDevice[] = [];
   state.inventoryDevices.forEach((device) => {
     if (device.assignedContractId !== contractId) return;
     device.status = "Available";
     device.assignedContractId = null;
     device.assignedAt = null;
+    released.push(device);
   });
+  return released;
 }
 
 function createContractFromPayload(body: any): Contract {
@@ -6097,6 +6170,7 @@ function createContractFromPayload(body: any): Contract {
   return {
     id,
     createdAt: clean(body.createdAt || todayIso()),
+    inventoryDeviceId: clean(body.inventoryDeviceId) || null,
     customer: {
       name: clean(body.customerName || body.customer?.name),
       phone: cleanPhone(body.customerPhone || body.customer?.phone),
