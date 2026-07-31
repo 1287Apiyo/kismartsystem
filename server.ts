@@ -645,8 +645,8 @@ async function routeRequest(request: any, response: any) {
     const device = createInventoryDeviceFromPayload(body);
     state.inventoryDevices.unshift(device);
     addAudit(state, body.role || "Admin", "Inventory device added", `${device.model} - ${device.imei || device.serial || device.id}`);
-    await saveState(state);
-    await saveFirestoreCoreRecord("inventoryDevices", device.id, device);
+    await saveState(state, { requireFirestore: true });
+    await saveFirestoreCoreRecord("inventoryDevices", device.id, device, true);
     sendJson(response, 201, enrichInventoryDevice(state, device));
     return;
   }
@@ -855,9 +855,9 @@ async function routeRequest(request: any, response: any) {
     markIntakeConverted(state, body.intakeId, contract.id);
     const assignedDevice = markInventoryDeviceAssigned(state, body.inventoryDeviceId, contract);
     addAudit(state, body.role || "Admin", "Contract created", contract.id);
-    await saveState(state);
-    await saveFirestoreCoreRecord("contracts", contract.id, contract);
-    if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice);
+    await saveState(state, { requireFirestore: true });
+    await saveFirestoreCoreRecord("contracts", contract.id, contract, true);
+    if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice, true);
     sendJson(response, 201, enrichContract(contract));
     return;
   }
@@ -882,9 +882,9 @@ async function routeRequest(request: any, response: any) {
     });
     const releasedDevices = releaseInventoryDevice(state, contract.id);
     addAudit(state, body.role || "Admin", "Contract deleted", `${contract.id} - ${contract.customer.name}`);
-    await saveState(state);
-    await deleteFirestoreCoreRecord("contracts", contract.id);
-    await Promise.all(releasedDevices.map((device) => saveFirestoreCoreRecord("inventoryDevices", device.id, device)));
+    await saveState(state, { requireFirestore: true });
+    await deleteFirestoreCoreRecord("contracts", contract.id, true);
+    await Promise.all(releasedDevices.map((device) => saveFirestoreCoreRecord("inventoryDevices", device.id, device, true)));
     sendJson(response, 200, { ok: true, deleted: contract.id });
     return;
   }
@@ -902,8 +902,8 @@ async function routeRequest(request: any, response: any) {
     if (linkedContract) throw new HttpError(409, `Device is assigned to contract ${linkedContract.id}`);
     const [device] = state.inventoryDevices.splice(index, 1);
     addAudit(state, body.role || "Admin", "Inventory device deleted", `${device.model} - ${device.imei || device.serial || device.id}`);
-    await saveState(state);
-    await deleteFirestoreCoreRecord("inventoryDevices", device.id);
+    await saveState(state, { requireFirestore: true });
+    await deleteFirestoreCoreRecord("inventoryDevices", device.id, true);
     sendJson(response, 200, { ok: true, deleted: device.id });
     return;
   }
@@ -5478,12 +5478,20 @@ async function loadJsonState(): Promise<AppState> {
   return state;
 }
 
-async function saveState(state: AppState) {
+async function saveState(state: AppState, options: { requireFirestore?: boolean } = {}) {
+  if (options.requireFirestore && STORAGE_MODE === "firestore" && !isFirestoreStorage()) {
+    throw new HttpError(503, firestoreLastError
+      ? `Firebase save failed: ${firestoreLastError}`
+      : "Firebase save failed: Firestore is temporarily unavailable");
+  }
   if (isFirestoreStorage()) {
     try {
       await withTimeout(saveFirestoreState(state), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore save timed out");
     } catch (error) {
       markFirestoreUnavailable(error);
+      if (options.requireFirestore && STORAGE_MODE === "firestore") {
+        throw new HttpError(503, `Firebase save failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
       await saveJsonState(state);
     }
   } else {
@@ -5660,8 +5668,16 @@ async function saveFirestoreState(state: AppState) {
   ]);
 }
 
-async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, value: unknown) {
-  if (!isFirestoreStorage() || !id) return;
+async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, value: unknown, required = false) {
+  if (!id) return;
+  if (!isFirestoreStorage()) {
+    if (required && STORAGE_MODE === "firestore") {
+      throw new HttpError(503, firestoreLastError
+        ? `Firebase ${collectionKey}/${id} save failed: ${firestoreLastError}`
+        : `Firebase ${collectionKey}/${id} save failed: Firestore is temporarily unavailable`);
+    }
+    return;
+  }
   try {
     const collectionName = FIRESTORE_RECORD_COLLECTIONS[collectionKey];
     await withTimeout(
@@ -5673,11 +5689,22 @@ async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDe
     console.error(
       `Firestore core record save failed for ${collectionKey}/${id}: ${error instanceof Error ? error.message : String(error)}`
     );
+    if (required && STORAGE_MODE === "firestore") {
+      throw new HttpError(503, `Firebase ${collectionKey}/${id} save failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
-async function deleteFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string) {
-  if (!isFirestoreStorage() || !id) return;
+async function deleteFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, required = false) {
+  if (!id) return;
+  if (!isFirestoreStorage()) {
+    if (required && STORAGE_MODE === "firestore") {
+      throw new HttpError(503, firestoreLastError
+        ? `Firebase ${collectionKey}/${id} delete failed: ${firestoreLastError}`
+        : `Firebase ${collectionKey}/${id} delete failed: Firestore is temporarily unavailable`);
+    }
+    return;
+  }
   try {
     const collectionName = FIRESTORE_RECORD_COLLECTIONS[collectionKey];
     await withTimeout(
@@ -5689,6 +5716,9 @@ async function deleteFirestoreCoreRecord(collectionKey: "contracts" | "inventory
     console.error(
       `Firestore core record delete failed for ${collectionKey}/${id}: ${error instanceof Error ? error.message : String(error)}`
     );
+    if (required && STORAGE_MODE === "firestore") {
+      throw new HttpError(503, `Firebase ${collectionKey}/${id} delete failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
