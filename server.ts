@@ -4370,6 +4370,8 @@ let state = null;
 let view = "overview";
 let liveEvents = null;
 let liveReloadTimer = 0;
+let liveReloadPending = false;
+const formDrafts = {};
 
 const baseDeviceCatalog = [
   { id: "samsung-a15", label: "Samsung Galaxy A15", model: "Samsung Galaxy A15", platform: "Android", controlProfile: "Android device owner", price: 28000 },
@@ -4552,9 +4554,23 @@ function startLiveUpdates() {
 
 function scheduleLiveReload() {
   window.clearTimeout(liveReloadTimer);
+  if (hasUnsavedFormDraft()) {
+    liveReloadPending = true;
+    return;
+  }
   liveReloadTimer = window.setTimeout(function () {
     load({ live: true }).catch(function (error) { showToast(error.message); });
   }, 120);
+}
+
+function hasUnsavedFormDraft() {
+  return Boolean(app.querySelector("form[data-preserve-draft][data-dirty='true']"));
+}
+
+function runPendingLiveReload() {
+  if (!liveReloadPending || hasUnsavedFormDraft()) return;
+  liveReloadPending = false;
+  scheduleLiveReload();
 }
 
 function pendingIntakeCount(source) {
@@ -4642,6 +4658,7 @@ function renderSales() {
     '</div></div></section>',
     '<section class="panel"><div class="panel-head"><div><h2>Sales ledger</h2><p>' + rows.length + ' recorded sale(s).</p></div></div>' + soldPhonesTable(rows) + '</section>'
   ].join("");
+  bindPreservedForm(document.getElementById("soldPhoneForm"));
   document.getElementById("soldPhoneForm").addEventListener("submit", submitSoldPhone);
   document.getElementById("salesDocEn").addEventListener("click", function () { openSalesDoc("en"); });
   document.getElementById("salesDocZh").addEventListener("click", function () { openSalesDoc("zh"); });
@@ -4670,6 +4687,7 @@ function renderSupply() {
     '</div></div></section>',
     '<section class="panel"><div class="panel-head"><div><h2>Supply ledger</h2><p>' + rows.length + ' supply record(s).</p></div></div>' + suppliesTable(rows) + '</section>'
   ].join("");
+  bindPreservedForm(document.getElementById("supplyForm"));
   document.getElementById("supplyForm").addEventListener("submit", submitSupply);
   document.getElementById("supplyDocEn").addEventListener("click", function () { openSupplyDoc("en"); });
   document.getElementById("supplyDocZh").addEventListener("click", function () { openSupplyDoc("zh"); });
@@ -4724,6 +4742,7 @@ async function submitSoldPhone(event) {
     body.role = role.value;
     body.price = Number(body.price || 0);
     await api("/api/sold-phones", { method: "POST", body: JSON.stringify(body) });
+    clearFormDraft(event.target);
     showToast("Sale logged");
     await load();
   } catch (error) {
@@ -4738,6 +4757,7 @@ async function submitSupply(event) {
     body.role = role.value;
     body.priceGiven = Number(body.priceGiven || 0);
     await api("/api/supplies", { method: "POST", body: JSON.stringify(body) });
+    clearFormDraft(event.target);
     showToast("Supply logged");
     await load();
   } catch (error) {
@@ -4805,6 +4825,7 @@ function renderInventory() {
   const form = document.getElementById("inventoryForm");
   form.elements.imei.addEventListener("input", function () { form.elements.imei.value = onlyDigits(form.elements.imei.value); });
   form.elements.serial.addEventListener("input", function () { form.elements.serial.value = cleanSerialText(form.elements.serial.value); });
+  bindPreservedForm(form);
 }
 
 function renderPayments() {
@@ -4823,6 +4844,7 @@ function renderPayments() {
     '</div>',
     '<section class="panel"><div class="panel-head"><div><h2>Collections Ledger</h2><p>Latest reconciled customer payments.</p></div></div>' + paymentsTable() + '</section>'
   ].join("");
+  bindPreservedForm(document.getElementById("paymentForm"));
   document.getElementById("paymentForm").addEventListener("submit", submitPayment);
 }
 
@@ -4877,9 +4899,13 @@ function bindRegistrationHelpers() {
     button.addEventListener("click", function () {
       form.elements.intakeSelect.value = button.dataset.intakeId;
       applyIntake(button.dataset.intakeId);
+      saveFormDraft(form);
     });
   });
   applyPlanTemplate(form, true);
+  bindPreservedForm(form, function () {
+    applyPlanTemplate(form, false);
+  });
 }
 
 function applyIntake(id) {
@@ -4973,6 +4999,7 @@ async function submitContract(event) {
     const body = Object.fromEntries(new FormData(event.target).entries());
     body.role = role.value;
     await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
+    clearFormDraft(event.target);
     showToast("Contract saved");
     view = "overview";
     await load();
@@ -4987,6 +5014,7 @@ async function submitInventoryDevice(event) {
     const body = Object.fromEntries(new FormData(event.target).entries());
     body.role = role.value;
     await api("/api/inventory-devices", { method: "POST", body: JSON.stringify(body) });
+    clearFormDraft(event.target);
     event.target.reset();
     showToast("Device added to stock");
     await load();
@@ -5001,11 +5029,63 @@ async function submitPayment(event) {
     const body = Object.fromEntries(new FormData(event.target).entries());
     body.role = role.value;
     await api("/api/contracts/" + encodeURIComponent(body.contractId) + "/payments", { method: "POST", body: JSON.stringify(body) });
+    clearFormDraft(event.target);
     showToast("Payment recorded");
     await load();
   } catch (error) {
     showToast(error.message);
   }
+}
+
+function bindPreservedForm(form, afterRestore) {
+  if (!form) return;
+  form.dataset.preserveDraft = "true";
+  restoreFormDraft(form);
+  if (typeof afterRestore === "function") afterRestore();
+  form.addEventListener("input", function () { saveFormDraft(form); });
+  form.addEventListener("change", function () { saveFormDraft(form); });
+}
+
+function formDraftKey(form) {
+  return view + ":" + form.id;
+}
+
+function saveFormDraft(form) {
+  const data = {};
+  Array.from(form.elements).forEach(function (field) {
+    if (!field.name || field.disabled) return;
+    if (field.type === "checkbox") data[field.name] = field.checked ? "1" : "";
+    else if (field.type === "radio") {
+      if (field.checked) data[field.name] = field.value;
+    } else {
+      data[field.name] = field.value;
+    }
+  });
+  formDrafts[formDraftKey(form)] = data;
+  form.dataset.dirty = "true";
+}
+
+function restoreFormDraft(form) {
+  const draft = formDrafts[formDraftKey(form)];
+  if (!draft) return;
+  Object.keys(draft).forEach(function (name) {
+    const field = form.elements[name];
+    if (!field) return;
+    if (field instanceof RadioNodeList) {
+      Array.from(field).forEach(function (item) { item.checked = item.value === draft[name]; });
+    } else if (field.type === "checkbox") {
+      field.checked = draft[name] === "1";
+    } else {
+      field.value = draft[name];
+    }
+  });
+  form.dataset.dirty = "true";
+}
+
+function clearFormDraft(form) {
+  delete formDrafts[formDraftKey(form)];
+  delete form.dataset.dirty;
+  runPendingLiveReload();
 }
 
 function contractsTable(contracts, controls) {
