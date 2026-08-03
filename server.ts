@@ -368,6 +368,7 @@ const FIRESTORE_OPERATION_TIMEOUT_MS = numberFrom(
   process.env.KISMART_FIRESTORE_TIMEOUT_MS,
   process.env.VERCEL ? 20000 : 15000
 );
+const REMOTE_STATE_CACHE_TTL_MS = numberFrom(process.env.KISMART_REMOTE_STATE_CACHE_TTL_MS, 1000);
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   Admin: ["contracts.write", "payments.write", "notices.write", "restrictions.write", "reports.read"],
@@ -411,6 +412,7 @@ type AutomaticPaymentControlResult = {
 };
 
 let cachedState: AppState | null = null;
+let cachedStateLoadedAt = 0;
 let cachedJsonMtimeMs = 0;
 const eventClients = new Set<any>();
 let firestoreDb: any = null;
@@ -421,6 +423,7 @@ let firestoreLastError: string | null = null;
 let automaticPaymentControlRunning = false;
 let automaticPaymentControlLoopStarted = false;
 let runtimeReady: Promise<void> | null = null;
+let storageWriteQueue: Promise<void> = Promise.resolve();
 
 const isMainModule = Boolean(process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url));
 
@@ -628,19 +631,19 @@ async function routeRequest(request: any, response: any) {
   }
 
   if (method === "GET" && url.pathname === "/api/state") {
-    const state = await loadState();
+    const state = await loadState({ forceRefresh: remoteStorageReady() });
     sendJson(response, 200, buildPublicState(state));
     return;
   }
 
   if (method === "GET" && url.pathname === "/api/contracts") {
-    const state = await loadState();
+    const state = await loadState({ forceRefresh: remoteStorageReady() });
     sendJson(response, 200, state.contracts.map(enrichContract));
     return;
   }
 
   if (method === "GET" && url.pathname === "/api/inventory-devices") {
-    const state = await loadState();
+    const state = await loadState({ forceRefresh: remoteStorageReady() });
     sendJson(response, 200, state.inventoryDevices.map((device) => enrichInventoryDevice(state, device)));
     return;
   }
@@ -654,7 +657,7 @@ async function routeRequest(request: any, response: any) {
     await saveFirestoreCoreRecord("inventoryDevices", device.id, device, true);
     state.inventoryDevices.unshift(device);
     addAudit(state, body.role || "Admin", "Inventory device added", `${device.model} - ${device.imei || device.serial || device.id}`);
-    queueStateSave(state, "Inventory device state save");
+    await saveState(state, { requireFirestore: true });
     sendJson(response, 201, enrichInventoryDevice(state, device));
     return;
   }
@@ -865,7 +868,7 @@ async function routeRequest(request: any, response: any) {
     addAudit(state, body.role || "Admin", "Contract created", contract.id);
     await saveFirestoreCoreRecord("contracts", contract.id, contract, true);
     if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice, true);
-    queueStateSave(state, "Contract state save");
+    await saveState(state, { requireFirestore: true });
     sendJson(response, 201, enrichContract(contract));
     return;
   }
@@ -892,7 +895,7 @@ async function routeRequest(request: any, response: any) {
     addAudit(state, body.role || "Admin", "Contract deleted", `${contract.id} - ${contract.customer.name}`);
     await deleteFirestoreCoreRecord("contracts", contract.id, true);
     await Promise.all(releasedDevices.map((device) => saveFirestoreCoreRecord("inventoryDevices", device.id, device, true)));
-    queueStateSave(state, "Contract delete state save");
+    await saveState(state, { requireFirestore: true });
     sendJson(response, 200, { ok: true, deleted: contract.id });
     return;
   }
@@ -911,7 +914,7 @@ async function routeRequest(request: any, response: any) {
     const [device] = state.inventoryDevices.splice(index, 1);
     addAudit(state, body.role || "Admin", "Inventory device deleted", `${device.model} - ${device.imei || device.serial || device.id}`);
     await deleteFirestoreCoreRecord("inventoryDevices", device.id, true);
-    queueStateSave(state, "Inventory device delete state save");
+    await saveState(state, { requireFirestore: true });
     sendJson(response, 200, { ok: true, deleted: device.id });
     return;
   }
@@ -5414,16 +5417,22 @@ load().then(startLiveUpdates).catch(function (error) { showToast(error.message);
 async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppState> {
   if (options.forceRefresh) {
     cachedState = null;
+    cachedStateLoadedAt = 0;
     cachedJsonMtimeMs = 0;
   }
   if (cachedState) {
-    if (isFirestoreStorage() || isSupabaseStorage() || !(await jsonStateFileChanged())) {
+    if (isFirestoreStorage() || isSupabaseStorage()) {
+      if (Date.now() - cachedStateLoadedAt <= REMOTE_STATE_CACHE_TTL_MS) {
+        return cachedState;
+      }
+    } else if (!(await jsonStateFileChanged())) {
       return cachedState;
     }
   }
   if (isSupabaseStorage()) {
     try {
       cachedState = await withTimeout(loadSupabaseState(), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase load timed out");
+      cachedStateLoadedAt = Date.now();
       return cachedState;
     } catch (error) {
       throw new HttpError(503, `Supabase load failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -5432,6 +5441,7 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
   if (isFirestoreStorage()) {
     try {
       cachedState = await withTimeout(loadFirestoreState(), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore load timed out");
+      cachedStateLoadedAt = Date.now();
       return cachedState;
     } catch (error) {
       markFirestoreUnavailable(error);
@@ -5446,6 +5456,7 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
       : "Firestore load failed: Firestore is temporarily unavailable");
   }
   cachedState = await loadJsonState();
+  cachedStateLoadedAt = Date.now();
   return cachedState;
 }
 
@@ -5462,6 +5473,7 @@ async function refreshContractFromStorage(state: AppState, contractId: string) {
       if (index >= 0) state.contracts[index] = found;
       else state.contracts.unshift(found);
       cachedState = state;
+      cachedStateLoadedAt = Date.now();
     } catch (error) {
       console.error(`Contract refresh failed for ${contractId}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -5485,6 +5497,7 @@ async function refreshContractFromStorage(state: AppState, contractId: string) {
           if (index >= 0) state.contracts[index] = found;
           else state.contracts.unshift(found);
           cachedState = state;
+          cachedStateLoadedAt = Date.now();
           return;
         }
       }
@@ -5508,6 +5521,7 @@ async function refreshContractFromStorage(state: AppState, contractId: string) {
     if (index >= 0) state.contracts[index] = normalized;
     else state.contracts.unshift(normalized);
     cachedState = state;
+    cachedStateLoadedAt = Date.now();
   } catch (error) {
     // Keep in-memory contract if refresh fails; policy still uses latest known payments.
     console.error(`Contract refresh failed for ${contractId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -5684,6 +5698,13 @@ function supabaseRecordsForState(state: AppState) {
 }
 
 async function saveState(state: AppState, options: { requireFirestore?: boolean } = {}) {
+  const stateSnapshot = normalizeState(toFirestoreRecord(state) as AppState);
+  const write = storageWriteQueue.catch(() => undefined).then(() => saveStateNow(stateSnapshot, options));
+  storageWriteQueue = write;
+  await write;
+}
+
+async function saveStateNow(state: AppState, options: { requireFirestore?: boolean } = {}) {
   if (isSupabaseStorage()) {
     try {
       await withTimeout(saveSupabaseState(state), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase save timed out");
@@ -5691,6 +5712,7 @@ async function saveState(state: AppState, options: { requireFirestore?: boolean 
       throw new HttpError(503, `Supabase save failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     cachedState = state;
+    cachedStateLoadedAt = Date.now();
     broadcastStateChange();
     return;
   }
@@ -5718,11 +5740,13 @@ async function saveState(state: AppState, options: { requireFirestore?: boolean 
     await saveJsonState(state);
   }
   cachedState = state;
+  cachedStateLoadedAt = Date.now();
   broadcastStateChange();
 }
 
 function queueStateSave(state: AppState, label: string) {
   cachedState = state;
+  cachedStateLoadedAt = Date.now();
   broadcastStateChange();
   void saveState(state).catch((error) => {
     console.error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -5734,6 +5758,7 @@ function queueDeviceRuntimeSave(
   changes: RuntimeSaveChanges
 ) {
   cachedState = state;
+  cachedStateLoadedAt = Date.now();
   broadcastStateChange();
   void saveDeviceRuntimeChanges(state, changes).catch((error) => {
     console.error(`Device sync persistence failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -5741,6 +5766,16 @@ function queueDeviceRuntimeSave(
 }
 
 async function saveDeviceRuntimeChanges(
+  state: AppState,
+  changes: RuntimeSaveChanges
+) {
+  const stateSnapshot = normalizeState(toFirestoreRecord(state) as AppState);
+  const write = storageWriteQueue.catch(() => undefined).then(() => saveDeviceRuntimeChangesNow(stateSnapshot, changes));
+  storageWriteQueue = write;
+  await write;
+}
+
+async function saveDeviceRuntimeChangesNow(
   state: AppState,
   _changes: RuntimeSaveChanges
 ) {
