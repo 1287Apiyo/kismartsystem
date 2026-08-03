@@ -5435,7 +5435,15 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
       return cachedState;
     } catch (error) {
       markFirestoreUnavailable(error);
+      if (STORAGE_MODE === "firestore") {
+        throw new HttpError(503, `Firestore load failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+  }
+  if (STORAGE_MODE === "firestore") {
+    throw new HttpError(503, firestoreLastError
+      ? `Firestore load failed: ${firestoreLastError}`
+      : "Firestore load failed: Firestore is temporarily unavailable");
   }
   cachedState = await loadJsonState();
   return cachedState;
@@ -5696,12 +5704,17 @@ async function saveState(state: AppState, options: { requireFirestore?: boolean 
       await withTimeout(saveFirestoreState(state), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore save timed out");
     } catch (error) {
       markFirestoreUnavailable(error);
-      if (options.requireFirestore && STORAGE_MODE === "firestore") {
+      if (STORAGE_MODE === "firestore") {
         throw new HttpError(503, `Firebase save failed: ${error instanceof Error ? error.message : String(error)}`);
       }
       await saveJsonState(state);
     }
   } else {
+    if (STORAGE_MODE === "firestore") {
+      throw new HttpError(503, firestoreLastError
+        ? `Firebase save failed: ${firestoreLastError}`
+        : "Firebase save failed: Firestore is temporarily unavailable");
+    }
     await saveJsonState(state);
   }
   cachedState = state;
@@ -5741,6 +5754,11 @@ async function saveDeviceRuntimeChanges(
     return;
   }
   if (!isFirestoreStorage()) {
+    if (STORAGE_MODE === "firestore") {
+      throw new HttpError(503, firestoreLastError
+        ? `Firestore runtime save failed: ${firestoreLastError}`
+        : "Firestore runtime save failed: Firestore is temporarily unavailable");
+    }
     await saveJsonState(state);
     return;
   }
@@ -5750,6 +5768,9 @@ async function saveDeviceRuntimeChanges(
     await withTimeout(saveFirestoreState(state), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore runtime save timed out");
   } catch (error) {
     markFirestoreUnavailable(error);
+    if (STORAGE_MODE === "firestore") {
+      throw new HttpError(503, `Firestore runtime save failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     await saveJsonState(state);
   }
 }
@@ -5848,13 +5869,6 @@ function mergeState(firestoreState: AppState, jsonState: AppState): { state: App
         fireIndexById.set(jsonItem.id, items.length);
         items.push(jsonItem);
         changed = true;
-      } else {
-        const existing = JSON.stringify(items[index]);
-        const incoming = JSON.stringify(jsonItem);
-        if (existing !== incoming) {
-          items[index] = jsonItem;
-          changed = true;
-        }
       }
     });
     return items;
@@ -6891,15 +6905,17 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     const fullLockActive = contract.restriction.active && contract.restriction.level === "Full lock";
     const limitedActive = isLimitedAccessRestriction(contract.restriction);
 
-    // ONLY restore when the financed balance is fully paid. Clicking Pay / STK pending must never unlock.
-    if (!hasPayableBalance(progress)) {
+    // Restore when the account is current. A future remaining balance must not restrict the phone.
+    if (!hasOverduePayableBalance(progress)) {
       if (!contract.restriction.active && !contract.restriction.holdAutoRestrict) return;
       if (!contract.restriction.active && contract.restriction.holdAutoRestrict) {
         contract.restriction.holdAutoRestrict = false;
         changes.contractIds?.push(contract.id);
         return;
       }
-      const { event, audit } = restoreDevice(state, contract, "Automatic restoration after balance cleared", {
+      const { event, audit } = restoreDevice(state, contract, hasPayableBalance(progress)
+        ? "Automatic restoration after overdue amount cleared"
+        : "Automatic restoration after balance cleared", {
         holdAutoRestrict: false,
       });
       changes.contractIds?.push(contract.id);
@@ -6908,7 +6924,9 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
       actions.push({
         contractId: contract.id,
         type: "Restore",
-        message: "No payable balance remaining; restore command queued automatically.",
+        message: hasPayableBalance(progress)
+          ? "Overdue amount cleared; restore command queued automatically."
+          : "No payable balance remaining; restore command queued automatically.",
       });
       return;
     }
@@ -6938,7 +6956,7 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
       state,
       "System",
       "Automatic payment limit applied",
-      `${contract.id} - unpaid balance ${formatKes(progress.balance)} (limit stays until payment is confirmed)`
+      `${contract.id} - overdue amount ${formatKes(progress.arrears)} (limit stays until overdue payment is confirmed)`
     );
     changes.contractIds?.push(contract.id);
     changes.syncEventIds?.push(event.id);
@@ -6946,7 +6964,7 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     actions.push({
       contractId: contract.id,
       type: "Restriction",
-      message: `Limited access enforced while unpaid balance ${formatKes(progress.balance)} remains.`,
+      message: `Limited access enforced while overdue amount ${formatKes(progress.arrears)} remains.`,
     });
   });
 
@@ -6971,11 +6989,11 @@ function isLimitedAccessRestriction(restriction: RestrictionState | null | undef
 
 /**
  * Phone-facing limit screen:
- * Keep Limit active for ANY unpaid financed balance until a payment is confirmed (balance drops).
+ * Keep Limit active only while an overdue amount remains.
  * Full lock takes precedence when admin set it.
  */
 function shouldEnforcePaymentLimit(contract: Contract, progress = getProgress(contract)) {
-  if (!hasPayableBalance(progress)) return false;
+  if (!hasOverduePayableBalance(progress)) return false;
   if (contract.restriction?.active && contract.restriction.level === "Full lock") return false;
   // Unpaid → limit. Restriction may still be flipping in applyAutomaticPaymentControls; enforce on policy anyway.
   return true;
@@ -7510,8 +7528,8 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
         holdAutoRestrict: false,
       };
   const restrictionMessage = paymentOnlyActive
-    ? `${contract.customer.name}, you still have ${formatKes(progress.balance)} to pay` +
-      (progress.arrears > 0 ? ` (${formatKes(progress.arrears)} overdue)` : "") +
+    ? `${contract.customer.name}, you have ${formatKes(progress.arrears)} overdue` +
+      (progress.balance > progress.arrears ? ` and ${formatKes(progress.balance)} remaining in total` : "") +
       `. Open KISMART to pay.`
     : fullLockActive
       ? `${contract.customer.name}, this phone is locked until payment is confirmed.`
@@ -7570,7 +7588,7 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
       active: paymentOnlyActive,
       label: "KISMART-only mode",
       reason: paymentOnlyActive
-        ? "unpaid-balance"
+        ? "overdue-payment"
         : hasBalance
           ? fullLockActive
             ? "full-lock"
@@ -8138,7 +8156,8 @@ function getProgress(contract: Contract): Progress {
 function getStatus(contract: Contract): Status {
   const progress = getProgress(contract);
   if (progress.balance <= 0) return "Completed";
-  if (contract.restriction.active) return "Restricted";
+  if (contract.restriction.active && contract.restriction.level === "Full lock") return "Restricted";
+  if (contract.restriction.active && progress.arrears > 0) return "Restricted";
   if (progress.arrears > 0) return "Overdue";
   return "Active";
 }
