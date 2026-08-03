@@ -15,7 +15,7 @@ const rootDocument = process.env.KISMART_FIRESTORE_DOCUMENT || "state";
 const settingsCollection = process.env.KISMART_FIRESTORE_SETTINGS_COLLECTION || "settings";
 const settingsDocument = process.env.KISMART_FIRESTORE_SETTINGS_DOCUMENT || "main";
 const recordCollections = {
-  contracts: process.env.KISMART_FIRESTORE_CONTRACTS_COLLECTION || "contracts",
+  contracts: process.env.KISMART_FIRESTORE_CONTRACTS_COLLECTION || "contacts",
   intakes: process.env.KISMART_FIRESTORE_INTAKES_COLLECTION || "intakes",
   notifications: process.env.KISMART_FIRESTORE_NOTIFICATIONS_COLLECTION || "notifications",
   syncEvents: process.env.KISMART_FIRESTORE_SYNC_EVENTS_COLLECTION || "syncEvents",

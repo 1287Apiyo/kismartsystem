@@ -300,7 +300,7 @@ const FIRESTORE_DOCUMENT = process.env.KISMART_FIRESTORE_DOCUMENT || "state";
 const FIRESTORE_SETTINGS_COLLECTION = process.env.KISMART_FIRESTORE_SETTINGS_COLLECTION || "settings";
 const FIRESTORE_SETTINGS_DOCUMENT = process.env.KISMART_FIRESTORE_SETTINGS_DOCUMENT || "main";
 const FIRESTORE_RECORD_COLLECTIONS = {
-  contracts: process.env.KISMART_FIRESTORE_CONTRACTS_COLLECTION || "contracts",
+  contracts: process.env.KISMART_FIRESTORE_CONTRACTS_COLLECTION || "contacts",
   intakes: process.env.KISMART_FIRESTORE_INTAKES_COLLECTION || "intakes",
   notifications: process.env.KISMART_FIRESTORE_NOTIFICATIONS_COLLECTION || "notifications",
   syncEvents: process.env.KISMART_FIRESTORE_SYNC_EVENTS_COLLECTION || "syncEvents",
@@ -409,6 +409,16 @@ type AutomaticPaymentControlResult = {
   changed: boolean;
   actions: { contractId: string; type: string; message: string }[];
   changes: RuntimeSaveChanges;
+};
+
+type StkPaymentInput = {
+  checkoutRequestId: string;
+  merchantRequestId?: string;
+  receipt: string;
+  amount: number;
+  phoneNumber?: string;
+  resultDesc?: string;
+  source: "callback" | "query";
 };
 
 let cachedState: AppState | null = null;
@@ -632,6 +642,14 @@ async function routeRequest(request: any, response: any) {
 
   if (method === "GET" && url.pathname === "/api/state") {
     const state = await loadState({ forceRefresh: remoteStorageReady() });
+    const stkReconcile = await reconcilePendingStkPayments(state);
+    if (stkReconcile.changed) {
+      const automaticControls = applyAutomaticPaymentControls(state);
+      if (automaticControls.changed) {
+        await dispatchPendingDeviceCommands(state, 25).catch(() => undefined);
+      }
+      await saveState(state, { requireFirestore: true });
+    }
     sendJson(response, 200, buildPublicState(state));
     return;
   }
@@ -980,16 +998,17 @@ async function routeRequest(request: any, response: any) {
   }
 
   if (method === "POST" && ["/api/payments/mpesa-callback", "/api/payments/airtel-callback"].includes(url.pathname)) {
-    const body = await readJson(request);
+    const rawBody = await readJson(request);
 
     // Accept native Safaricom Lipa Na M-Pesa Online (STK) callbacks on the generic M-Pesa route too.
     if (url.pathname.includes("mpesa")) {
-      const stkHandled = await handleMpesaStkCallback(body, response);
+      const stkHandled = await handleMpesaStkCallback(rawBody, response);
       if (stkHandled) return;
     }
+    const body = normalizePaymentCallbackPayload(rawBody);
 
     assertCallbackSecret(request);
-    const state = await loadState();
+    const state = await loadState({ forceRefresh: true });
     const contract = resolveContractForCallback(state, body);
     if (!contract) {
       sendJson(response, 404, { error: "No matching contract found for callback" });
@@ -1036,18 +1055,16 @@ async function routeRequest(request: any, response: any) {
 
   // PayBill callback endpoint - handles real M-Pesa STK + C2B payment confirmations
   if (method === "POST" && url.pathname === "/api/payments/paybill-callback") {
-    const body = await readJson(request);
-    const stkHandled = await handleMpesaStkCallback(body, response);
+    const rawBody = await readJson(request);
+    const stkHandled = await handleMpesaStkCallback(rawBody, response);
     if (stkHandled) return;
+    const body = normalizePaymentCallbackPayload(rawBody);
 
     // Normal PayBill (C2B) callback handling
     assertCallbackSecret(request);
-    const state = await loadState();
-    // Try to resolve contract by account number + reference or phone number
-    let contract = null;
-    if (body.accountNumber === PAYBILL_ACCOUNT_NUMBER) {
-      contract = resolveContractForCallback(state, body);
-    }
+    const state = await loadState({ forceRefresh: true });
+    // Try to resolve by BillRefNumber/account reference, contract id, IMEI, then phone.
+    const contract = resolveContractForCallback(state, body);
     if (!contract) {
       // Log failed callback for manual investigation
       state.syncEvents.unshift({
@@ -1057,7 +1074,7 @@ async function routeRequest(request: any, response: any) {
         provider: "M-Pesa PayBill",
         reference: clean(body.transactionCode || body.reference || "UNKNOWN"),
         status: "Failed",
-        message: `PayBill callback received but no matching contract found. Amount: ${numberFrom(body.amount, 0)}, Phone: ${clean(body.phoneNumber || "")}`,
+        message: `PayBill callback received but no matching contract found. Amount: ${numberFrom(body.amount, 0)}, Account: ${clean(body.accountNumber || "")}, Phone: ${clean(body.phoneNumber || "")}`,
       });
       await saveState(state);
       sendJson(response, 404, { error: "No matching contract found for PayBill callback", reference: body.transactionCode });
@@ -1237,13 +1254,17 @@ async function routeRequest(request: any, response: any) {
     const contract = findContractByImeiOrThrow(state, decodeURIComponent(devicePolicyMatch[1]));
     await refreshContractFromStorage(state, contract.id);
     const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request), "Policy pull");
+    const stkReconcile = await reconcilePendingStkPayments(state, [contract]);
     const automaticControls = applyAutomaticPaymentControls(state, [contract]);
+    const runtimeChanges = mergeRuntimeSaveChanges(identityCheck.changes, stkReconcile.changes, automaticControls.changes);
     if (!identityCheck.allowed) {
-      queueDeviceRuntimeSave(state, mergeRuntimeSaveChanges(identityCheck.changes, automaticControls.changes));
+      if (stkReconcile.changed) await saveDeviceRuntimeChanges(state, runtimeChanges);
+      else queueDeviceRuntimeSave(state, runtimeChanges);
       sendJson(response, 423, { error: "Device identity mismatch", detail: identityCheck.detail });
       return;
     }
-    queueDeviceRuntimeSave(state, mergeRuntimeSaveChanges(identityCheck.changes, automaticControls.changes));
+    if (stkReconcile.changed) await saveDeviceRuntimeChanges(state, runtimeChanges);
+    else queueDeviceRuntimeSave(state, runtimeChanges);
     sendJson(response, 200, buildDevicePolicy(state, contract, identityCheck.bindingToken));
     return;
   }
@@ -1257,9 +1278,12 @@ async function routeRequest(request: any, response: any) {
     await refreshContractFromStorage(state, contract.id);
     const deviceEventIdsBefore = new Set(state.deviceEvents.map((event) => event.id));
     const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request, body), "Policy sync");
+    const stkReconcile = await reconcilePendingStkPayments(state, [contract]);
     const automaticControls = applyAutomaticPaymentControls(state, [contract]);
     if (!identityCheck.allowed) {
-      queueDeviceRuntimeSave(state, mergeRuntimeSaveChanges(identityCheck.changes, automaticControls.changes));
+      const deniedChanges = mergeRuntimeSaveChanges(identityCheck.changes, stkReconcile.changes, automaticControls.changes);
+      if (stkReconcile.changed) await saveDeviceRuntimeChanges(state, deniedChanges);
+      else queueDeviceRuntimeSave(state, deniedChanges);
       sendJson(response, 423, { error: "Device identity mismatch", detail: identityCheck.detail });
       return;
     }
@@ -1278,12 +1302,14 @@ async function routeRequest(request: any, response: any) {
       paymentOnlyActive: Boolean(policy.paymentOnly?.active),
       offlineSafe: true,
     });
-    queueDeviceRuntimeSave(state, mergeRuntimeSaveChanges(identityCheck.changes, automaticControls.changes, {
+    const syncChanges = mergeRuntimeSaveChanges(identityCheck.changes, stkReconcile.changes, automaticControls.changes, {
       syncEventIds: appliedCommands.map((command) => command.id),
       deviceEventIds: state.deviceEvents
         .filter((event) => event.id === policySyncEvent.id || !deviceEventIdsBefore.has(event.id))
         .map((event) => event.id),
-    }));
+    });
+    if (stkReconcile.changed) await saveDeviceRuntimeChanges(state, syncChanges);
+    else queueDeviceRuntimeSave(state, syncChanges);
     sendJson(response, 200, {
       policy,
       commands,
@@ -5923,8 +5949,8 @@ function mergeState(firestoreState: AppState, jsonState: AppState): { state: App
 }
 
 async function saveFirestoreState(state: AppState) {
-  // Single-document write keeps STK checkout maps + contracts durable with 1 write per save.
-  // Optional collection mirroring is opt-in to avoid free-tier write exhaustion.
+  // Single-document write keeps STK checkout maps + full state durable.
+  // The contacts collection is also canonical for Firebase Console/admin workflows, so always mirror it.
   const firestore = getFirestoreDb();
   const compact = compactStateForStorage(state);
   // Parallel writes cut Vercel latency vs sequential sets (helps stay under cold-start budgets).
@@ -5939,13 +5965,13 @@ async function saveFirestoreState(state: AppState) {
       updatedAt: nowIso(),
       version: VERSION,
     }),
+    syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.contracts, state.contracts, (item: Contract) => item.id),
   ]);
 
   const mirrorCollections = (process.env.KISMART_FIRESTORE_MIRROR_COLLECTIONS || "false").toLowerCase() === "true";
   if (!mirrorCollections) return;
 
   await Promise.all([
-    syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.contracts, state.contracts, (item: Contract) => item.id),
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.intakes, state.intakes, (item: IntakeRecord) => item.id),
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.notifications, state.notifications, (item: NotificationRecord) => item.id),
     syncFirestoreCollection(firestore, FIRESTORE_RECORD_COLLECTIONS.syncEvents, state.syncEvents, (item: AppState["syncEvents"][number]) => item.id),
@@ -6600,6 +6626,59 @@ function validatePaymentPayload(body: any) {
   if (amount <= 0) throw new HttpError(400, "Payment amount must be greater than zero");
 }
 
+function normalizePaymentCallbackPayload(body: any) {
+  const accountNumber = clean(
+    body.accountNumber ||
+    body.BillRefNumber ||
+    body.billRefNumber ||
+    body.AccountReference ||
+    body.accountReference ||
+    body.InvoiceNumber ||
+    body.invoiceNumber
+  );
+  const phoneNumber = clean(
+    body.phoneNumber ||
+    body.PhoneNumber ||
+    body.MSISDN ||
+    body.msisdn ||
+    body.Msisdn ||
+    body.phone ||
+    body.PartyA
+  );
+  const transactionCode = clean(
+    body.transactionCode ||
+    body.TransID ||
+    body.transId ||
+    body.TransactionCode ||
+    body.MpesaReceiptNumber ||
+    body.reference
+  );
+  const amount = numberFrom(
+    body.amount ||
+    body.TransAmount ||
+    body.transAmount ||
+    body.Amount ||
+    body.amountPaid
+  );
+  return {
+    ...body,
+    amount,
+    accountNumber,
+    phoneNumber,
+    phone: phoneNumber,
+    msisdn: phoneNumber,
+    transactionCode,
+    reference: clean(body.reference || transactionCode),
+    completedTime: clean(
+      body.completedTime ||
+      body.transactionDate ||
+      body.TransTime ||
+      body.transTime ||
+      body.TransactionTime
+    ),
+  };
+}
+
 function findPaymentByReference(state: AppState, reference: string, method: PaymentMethod) {
   for (const contract of state.contracts) {
     const payment = contract.payments.find((item) => item.reference === reference && item.method === method);
@@ -6617,8 +6696,24 @@ function addPayment(contract: Contract, input: Omit<Payment, "id">): Payment {
 function resolveContractForCallback(state: AppState, body: any) {
   const contractId = clean(body.contractId);
   if (contractId) return state.contracts.find((contract) => contract.id === contractId);
-  const phone = clean(body.phone || body.msisdn);
-  if (phone) return state.contracts.find((contract) => contract.customer.phone === phone);
+  const accountNumber = clean(body.accountNumber || body.BillRefNumber || body.accountReference || body.invoiceNumber);
+  if (accountNumber) {
+    const account = accountNumber.toLowerCase();
+    const byAccount = state.contracts.find((contract) => {
+      const id = contract.id.toLowerCase();
+      return id === account || id.slice(0, 12) === account || account.includes(id);
+    });
+    if (byAccount) return byAccount;
+  }
+  const phone = clean(body.phone || body.msisdn || body.phoneNumber);
+  if (phone) {
+    const normalizedPhone = formatMpesaPhone(phone);
+    return state.contracts.find((contract) =>
+      contract.customer.phone === phone ||
+      cleanPhone(contract.customer.phone) === cleanPhone(phone) ||
+      formatMpesaPhone(contract.customer.phone) === normalizedPhone
+    );
+  }
   const imei = clean(body.imei);
   if (imei) return state.contracts.find((contract) => contract.device.imei === imei);
   return null;
@@ -6655,6 +6750,100 @@ function markPendingStkEvent(
     event.status = status;
     event.message = message;
   }
+}
+
+function recordConfirmedStkPayment(state: AppState, contract: Contract, input: StkPaymentInput): Payment {
+  const receipt = clean(input.receipt || input.checkoutRequestId);
+  const checkout = clean(input.checkoutRequestId);
+  const amount = numberFrom(input.amount);
+  const payment = addPayment(contract, {
+    amount,
+    method: "M-Pesa",
+    reference: receipt,
+    date: todayIso(),
+    status: "Synced",
+  });
+  markPendingStkEvent(
+    state,
+    checkout,
+    "Synced",
+    `STK Push payment confirmed - ${receipt} for ${formatKes(amount)}`
+  );
+  state.syncEvents.unshift({
+    id: uid("SYNC"),
+    time: nowIso(),
+    contractId: contract.id,
+    provider: input.source === "query" ? "M-Pesa STK Query" : "M-Pesa STK",
+    reference: receipt,
+    status: "Synced",
+    message: `STK Push payment confirmed by ${input.source} - receipt ${receipt} checkout ${checkout} for ${formatKes(amount)}`,
+    merchantRequestId: clean(input.merchantRequestId),
+    phoneNumber: input.phoneNumber ? formatMpesaPhone(input.phoneNumber) : undefined,
+    amount,
+  });
+  addAudit(state, "System", "STK Push payment confirmed", `${contract.id} - ${formatKes(payment.amount)} (${receipt})`);
+  return payment;
+}
+
+async function reconcilePendingStkPayments(state: AppState, contracts = state.contracts): Promise<{ changed: boolean; changes: RuntimeSaveChanges }> {
+  if (!MPESA_CONFIGURED) return { changed: false, changes: {} };
+  const changes: RuntimeSaveChanges = { syncEventIds: [], contractIds: [], auditIds: [] };
+  let changed = false;
+  for (const contract of contracts) {
+    const pendingEvents = state.syncEvents.filter((event) =>
+      event.contractId === contract.id &&
+      event.status === "Pending" &&
+      (event.provider === "M-Pesa PayBill" || event.provider === "M-Pesa STK" || event.provider === "M-Pesa") &&
+      Boolean(clean(event.reference))
+    );
+    for (const event of pendingEvents.slice(0, 3)) {
+      const checkout = clean(event.reference);
+      if (!checkout || findPaymentByReference(state, checkout, "M-Pesa")) continue;
+      let status: Awaited<ReturnType<typeof queryMpesaStkStatus>>;
+      try {
+        status = await queryMpesaStkStatus(checkout);
+      } catch (error) {
+        console.warn(`[mpesa-stk] sync query failed for ${checkout}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      if (status.resultCode == null || Number.isNaN(status.resultCode) || status.resultCode === 4999) continue;
+      if (status.resultCode === 0) {
+        const receipt = clean(status.receiptNumber || checkout);
+        const amount = numberFrom(status.amount || event.amount, 0);
+        if (amount <= 0) {
+          event.status = "Failed";
+          event.message = `STK paid but amount was unavailable from query for CheckoutID=${checkout}`;
+          changes.syncEventIds?.push(event.id);
+          changed = true;
+          continue;
+        }
+        if (!findPaymentByReference(state, receipt, "M-Pesa")) {
+          const beforeAuditIds = new Set(state.audit.map((audit) => audit.id));
+          recordConfirmedStkPayment(state, contract, {
+            checkoutRequestId: checkout,
+            merchantRequestId: event.merchantRequestId,
+            receipt,
+            amount,
+            phoneNumber: status.phoneNumber || event.phoneNumber,
+            resultDesc: status.resultDesc,
+            source: "query",
+          });
+          changes.contractIds?.push(contract.id);
+          changes.syncEventIds?.push(event.id);
+          state.audit.filter((audit) => !beforeAuditIds.has(audit.id)).forEach((audit) => changes.auditIds?.push(audit.id));
+          changed = true;
+        }
+        continue;
+      }
+      if ([1032, 1037, 2001, 1, 1001, 1019, 2028, 2029, 2002, 9999, 1025].includes(status.resultCode)) {
+        event.status = "Failed";
+        event.message = `STK Push failed: ${status.resultDesc || "M-Pesa did not confirm payment"} (${status.resultCode})`;
+        changes.syncEventIds?.push(event.id);
+        changed = true;
+      }
+    }
+  }
+  return { changed, changes };
 }
 
 function parseMpesaStkCallback(body: any) {
@@ -6790,30 +6979,14 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
     return true;
   }
 
-  const payment = addPayment(contract, {
-    amount,
-    method: "M-Pesa",
-    reference: receipt,
-    date: todayIso(),
-    status: "Synced",
-  });
-  markPendingStkEvent(
-    state,
-    stk.checkoutRequestId,
-    "Synced",
-    `STK Push payment confirmed - ${receipt} for ${formatKes(amount)}`
-  );
-  state.syncEvents.unshift({
-    id: uid("SYNC"),
-    time: nowIso(),
-    contractId: contract.id,
-    provider: "M-Pesa STK",
-    reference: receipt,
-    status: "Synced",
-    message: `STK Push payment confirmed - receipt ${receipt} checkout ${stk.checkoutRequestId} for ${formatKes(amount)}`,
+  const payment = recordConfirmedStkPayment(state, contract, {
+    checkoutRequestId: stk.checkoutRequestId,
     merchantRequestId: stk.merchantRequestId,
-    phoneNumber: stk.phoneNumber ? formatMpesaPhone(stk.phoneNumber) : undefined,
+    receipt,
     amount,
+    phoneNumber: stk.phoneNumber,
+    resultDesc: stk.resultDesc,
+    source: "callback",
   });
   const automaticControls = applyAutomaticPaymentControls(state, [contract]);
   if (automaticControls.changed) {
@@ -8964,6 +9137,10 @@ async function queryMpesaStkStatus(checkoutRequestId: string) {
   } catch {
     data = { raw: text };
   }
+  const metadata = data.CallbackMetadata?.Item || data.callbackMetadata?.Item || [];
+  const getVal = (name: string) => Array.isArray(metadata)
+    ? metadata.find((i: any) => i.Name === name || i.name === name)?.Value
+    : undefined;
   return {
     ok: response.ok,
     resultCode:
@@ -8971,6 +9148,9 @@ async function queryMpesaStkStatus(checkoutRequestId: string) {
         ? null
         : Number(data.ResultCode),
     resultDesc: clean(data.ResultDesc || data.ResponseDescription || data.errorMessage || ""),
+    receiptNumber: clean(data.MpesaReceiptNumber || data.mpesaReceiptNumber || getVal("MpesaReceiptNumber") || ""),
+    amount: numberFrom(data.Amount || data.amount || getVal("Amount"), 0),
+    phoneNumber: clean(data.PhoneNumber || data.MSISDN || data.msisdn || getVal("PhoneNumber") || ""),
     raw: data,
   };
 }
@@ -9386,6 +9566,7 @@ function buildSelfTestState(): AppState {
   const contract: Contract = {
     id: "KIS-TEST",
     createdAt: dateToIso(addDays(today(), -15)),
+    inventoryDeviceId: null,
     customer: {
       name: "Test Customer",
       phone: "0700000000",
