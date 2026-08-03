@@ -282,6 +282,15 @@ const BINDING_TOKEN_SECRET = String(process.env.KISMART_BINDING_SECRET || DEVICE
 const SESSION_COOKIE = "kismart_admin_session";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const STORAGE_MODE = String(process.env.KISMART_STORAGE || "json").trim().toLowerCase();
+const SUPABASE_URL = clean(process.env.SUPABASE_URL || process.env.KISMART_SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SERVICE_KEY = clean(
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.KISMART_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || ""
+);
+const SUPABASE_RECORDS_TABLE = clean(process.env.KISMART_SUPABASE_RECORDS_TABLE || "kismart_records");
+const SUPABASE_OPERATION_TIMEOUT_MS = numberFrom(
+  process.env.KISMART_SUPABASE_TIMEOUT_MS,
+  process.env.VERCEL ? 15000 : 10000
+);
 const FIREBASE_PROJECT_ID = clean(process.env.FIREBASE_PROJECT_ID || "kismart-456ee").replace(/^\uFEFF/, "");
 const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
 const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
@@ -430,7 +439,7 @@ async function startServer(port: number) {
   server.listen(port, "0.0.0.0", () => {
     console.log(`KISMART backend running at http://0.0.0.0:${port}`);
     console.log(`Public device control URL: ${PUBLIC_BASE_URL}`);
-    console.log(`Storage mode: ${isFirestoreStorage() ? `Firestore (${FIREBASE_PROJECT_ID}/${FIRESTORE_DATABASE || "(default)"}/top-level collections)` : `JSON (${DATA_FILE})`}`);
+    console.log(`Storage mode: ${storageDescription()}`);
   });
 }
 
@@ -467,16 +476,15 @@ async function routeRequest(request: any, response: any) {
   }
 
   if (method === "GET" && (url.pathname === "/api/health" || url.pathname === "/health")) {
-    const usingFirestore = isFirestoreStorage();
     sendJson(response, 200, {
       ok: true,
       service: SHOP_NAME,
       version: VERSION,
       publicBaseUrl: PUBLIC_BASE_URL,
-      storage: usingFirestore ? "firestore" : "json",
-      remoteReady: usingFirestore || !process.env.VERCEL,
+      storage: currentStorageMode(),
+      remoteReady: remoteStorageReady() || !process.env.VERCEL,
       deviceSyncSecretConfigured: Boolean(DEVICE_SYNC_SECRET),
-      firestoreError: usingFirestore ? null : firestoreLastError,
+      firestoreError: isFirestoreStorage() ? null : firestoreLastError,
       mpesaConfigured: MPESA_CONFIGURED,
       mpesaTransactionType: MPESA_TRANSACTION_TYPE,
       mpesaShortcode: PAYBILL_BUSINESS_NUMBER,
@@ -603,7 +611,7 @@ async function routeRequest(request: any, response: any) {
       ok: true,
       service: `${SHOP_NAME} Installment Management Backend`,
       version: VERSION,
-      storageMode: isFirestoreStorage() ? "firestore" : "json",
+      storageMode: currentStorageMode(),
       firestoreLastError: firestoreLastError,
       time: nowIso(),
     });
@@ -934,6 +942,11 @@ async function routeRequest(request: any, response: any) {
     const reference = clean(body.reference || `MANUAL-${Date.now()}`);
     const existingPayment = findPaymentByReference(state, reference, methodName);
     if (existingPayment) {
+      const automaticControls = applyAutomaticPaymentControls(state, [existingPayment.contract]);
+      if (automaticControls.changed) {
+        await dispatchPendingDeviceCommands(state, 25);
+      }
+      await saveState(state);
       sendJson(response, 200, { duplicate: true, payment: existingPayment.payment, contract: enrichContract(existingPayment.contract) });
       return;
     }
@@ -984,6 +997,11 @@ async function routeRequest(request: any, response: any) {
     const callbackReference = clean(body.reference || body.transactionCode || `CALLBACK-${Date.now()}`);
     const existingPayment = findPaymentByReference(state, callbackReference, provider);
     if (existingPayment) {
+      const automaticControls = applyAutomaticPaymentControls(state, [existingPayment.contract]);
+      if (automaticControls.changed) {
+        await dispatchPendingDeviceCommands(state, 25);
+      }
+      await saveState(state);
       sendJson(response, 200, { duplicate: true, payment: existingPayment.payment, contract: enrichContract(existingPayment.contract) });
       return;
     }
@@ -1046,6 +1064,11 @@ async function routeRequest(request: any, response: any) {
     const transactionRef = clean(body.transactionCode || `PAYBILL-${Date.now()}`);
     const existingPayment = findPaymentByReference(state, transactionRef, "M-Pesa");
     if (existingPayment) {
+      const automaticControls = applyAutomaticPaymentControls(state, [existingPayment.contract]);
+      if (automaticControls.changed) {
+        await dispatchPendingDeviceCommands(state, 25);
+      }
+      await saveState(state);
       sendJson(response, 200, { duplicate: true, payment: existingPayment.payment, contract: enrichContract(existingPayment.contract) });
       return;
     }
@@ -1574,7 +1597,7 @@ function renderSaasLanding() {
           <article class="lp-feature">
             <p class="lp-tag">Collections</p>
             <h3>Cash, M-Pesa, Airtel, bank</h3>
-            <p>Post payments to the right account. Balances and arrears update for the team.</p>
+            <p>Post payments to the right account. Remaining balances and overdue amounts update for the team.</p>
           </article>
           <article class="lp-feature">
             <p class="lp-tag">Onboarding</p>
@@ -1615,7 +1638,7 @@ function renderSaasLanding() {
           <article>
             <span>3</span>
             <h3>Collect payments</h3>
-            <p>STK prompts, cash posts, arrears views, and limit when accounts fall behind.</p>
+            <p>STK prompts, cash posts, overdue views, and limit when accounts fall behind.</p>
           </article>
           <article>
             <span>4</span>
@@ -4624,12 +4647,12 @@ function renderOverview() {
   const actionLabel = s.overdue === 1 ? "1 account needs action" : s.overdue + " accounts need action";
   app.innerHTML = [
     '<section class="command-surface">',
-    '<div class="command-lead"><div><span class="eyebrow">Operating snapshot</span><h2>' + healthLabel(score) + '</h2><p>Financing, collections, balances, arrears, and customer follow-up on one clean operating surface.</p></div><div class="command-score"><span>Health score</span><strong>' + score + '</strong><small>' + s.collectionRate + '% collection rate</small></div></div>',
+    '<div class="command-lead"><div><span class="eyebrow">Operating snapshot</span><h2>' + healthLabel(score) + '</h2><p>Financing, collections, remaining balances, overdue amounts, and customer follow-up on one clean operating surface.</p></div><div class="command-score"><span>Health score</span><strong>' + score + '</strong><small>' + s.collectionRate + '% collection rate</small></div></div>',
     '<div class="command-metrics">',
     commandMetric("Portfolio value", money.format(s.value), deviceLabel, "ink"),
     commandMetric("Collected", money.format(s.collected), "Payments received", "green-accent"),
-    commandMetric("Outstanding", money.format(s.balance), "Customer balances still open", "neutral"),
-    commandMetric("Arrears exposure", money.format(s.arrears), actionLabel, "dark"),
+    commandMetric("Remaining balance", money.format(s.balance), "Total still owed on financed phones", "neutral"),
+    commandMetric("Overdue amount", money.format(s.arrears), actionLabel, "dark"),
     '</div>',
     '<div class="command-insights">',
     portfolioStatusChart("command-chart"),
@@ -4801,7 +4824,7 @@ function renderRegister() {
     '<div class="form-section form-wide"><strong>Terms</strong><span>Choose a repayment template, then adjust if needed.</span></div>',
     '<label>Plan template<select name="planTemplate">' + planTemplates.map(function (item) { return '<option value="' + e(item.id) + '">' + e(item.label) + '</option>'; }).join("") + '</select></label>',
     field("Device price", "devicePrice", "number", true),
-    field("Deposit", "deposit", "number", true),
+    field("Deposit paid", "deposit", "number", true),
     field("Installment", "installment", "number", true),
     selectField("Frequency", "frequency", ["Daily", "Weekly", "Monthly", "Custom"]),
     field("Repayment period", "periodCount", "number", true, "4"),
@@ -4839,7 +4862,7 @@ function renderPayments() {
   const options = state.contracts.map(function (contract) { return '<option value="' + e(contract.id) + '">' + e(contract.id + " - " + contract.customer.name) + '</option>'; }).join("");
   app.innerHTML = [
     '<div class="layout">',
-    '<section class="panel"><div class="panel-head"><div><h2>Record Collection</h2><p>Post a payment, reconcile the account, and queue restoration when arrears clear.</p></div><button class="btn" form="paymentForm" type="submit">Record Payment</button></div>',
+    '<section class="panel"><div class="panel-head"><div><h2>Record Collection</h2><p>Post a payment, reconcile the account, and queue restoration when the remaining balance is fully paid.</p></div><button class="btn" form="paymentForm" type="submit">Record Payment</button></div>',
     '<form id="paymentForm">',
     '<label>Contract<select name="contractId">' + options + '</select></label>',
     selectField("Channel", "method", ["M-Pesa", "Airtel Money", "Bank", "Cash"]),
@@ -4992,7 +5015,7 @@ function applyPlanTemplate(form, updateDeposit) {
 function updatePlanSummary(price, deposit, periods, installment, frequency) {
   const summary = document.getElementById("planSummary");
   const balance = Math.max(price - deposit, 0);
-  summary.innerHTML = '<span>Financed balance</span><strong>' + money.format(balance) + '</strong><small>' + periods + ' ' + e(frequency).toLowerCase() + ' payment(s) at ' + money.format(numberValue(installment)) + '</small>';
+  summary.innerHTML = '<span>Remaining balance after deposit</span><strong>' + money.format(balance) + '</strong><small>' + periods + ' ' + e(frequency).toLowerCase() + ' payment(s) at ' + money.format(numberValue(installment)) + '</small>';
 }
 
 function setFormValue(form, name, value) {
@@ -5119,7 +5142,7 @@ function clearFormDraft(form) {
 
 function contractsTable(contracts, controls) {
   if (!contracts.length) return '<div class="empty">No matching contracts.</div>';
-  return '<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Device</th><th>Plan</th><th>Paid</th><th>Balance</th><th>Arrears</th><th>Next due</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + contracts.map(function (c) {
+  return '<div class="table-wrap"><table><thead><tr><th>Customer</th><th>Device</th><th>Plan</th><th>Paid</th><th>Remaining balance</th><th>Overdue amount</th><th>Next due</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + contracts.map(function (c) {
     const deleteButton = '<button class="tiny delete" data-action="delete-contract" data-id="' + e(c.id) + '" data-confirm="' + e("Delete contract " + c.id + " for " + c.customer.name + "? This cannot be undone.") + '" type="button">Delete</button>';
     const bindingStatus = c.device.binding ? "Identity locked (same phone auto-recovers)" : "Identity not enrolled";
     const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
@@ -5152,7 +5175,7 @@ function paymentsTable() {
 
 function riskQueue() {
   const risky = state.contracts.filter(function (c) { return c.progress.arrears > 0 || c.status === "Restricted"; }).sort(function (a, b) { return b.progress.arrears - a.progress.arrears; });
-  if (!risky.length) return '<div class="empty">No accounts are in arrears.</div>';
+  if (!risky.length) return '<div class="empty">No accounts have overdue payments.</div>';
   return '<div class="queue">' + risky.slice(0, 8).map(function (c) {
     return '<div class="queue-row"><div><strong>' + e(c.customer.name) + '</strong><p>' + money.format(c.progress.arrears) + ' overdue. ' + e(c.warning) + '. ' + e(c.device.model) + '.</p></div><div class="actions">' + badge(c.status) + '<button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button></div></div>';
   }).join("") + '</div>';
@@ -5265,7 +5288,7 @@ function deviceAgentGuide() {
   const baseUrl = cfg.publicBaseUrl || "https://kismartsystem.vercel.app";
   const storageReady = cfg.storageMode === "firestore" || cfg.remoteReady;
   return '<div class="queue">' +
-    '<div class="readiness-row"><strong>Android policy pull</strong><p>GET /api/devices/:imei/policy returns balance, arrears, next due date, and the current restriction level for the Android agent.</p>' + badge("Ready") + '</div>' +
+    '<div class="readiness-row"><strong>Android policy pull</strong><p>GET /api/devices/:imei/policy returns remaining balance, overdue amount, next due date, and the current restriction level for the Android agent.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Android identity binding</strong><p>First trusted sync locks the contract to that handset Android ID and issues a binding token. Reinstalls and app-data wipes on the same phone re-bind automatically — do not use Reset ID unless the physical handset changed.</p>' + badge("Ready") + '</div>' +
     '<div class="readiness-row"><strong>Remote device control</strong><p>Phones must use the public HTTPS URL (' + e(baseUrl) + ') so lock/restore works on mobile data and any Wi-Fi. Admin dashboard and phones must share Firestore (not ephemeral JSON on Vercel).</p>' + badge(storageReady ? "Ready" : "Attention") + '</div>' +
     '<div class="readiness-row"><strong>M-Pesa STK Push</strong><p>POST /api/devices/:imei/paybill-stk starts real Daraja STK for PayBill ' + e(cfg.mpesaShortcode || "—") + '. Callback: ' + e(cfg.mpesaCallbackUrl || "(not set)") + '</p>' + badge(cfg.mpesaConfigured ? "Ready" : "Attention") + '</div>' +
@@ -5394,8 +5417,16 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
     cachedJsonMtimeMs = 0;
   }
   if (cachedState) {
-    if (isFirestoreStorage() || !(await jsonStateFileChanged())) {
+    if (isFirestoreStorage() || isSupabaseStorage() || !(await jsonStateFileChanged())) {
       return cachedState;
+    }
+  }
+  if (isSupabaseStorage()) {
+    try {
+      cachedState = await withTimeout(loadSupabaseState(), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase load timed out");
+      return cachedState;
+    } catch (error) {
+      throw new HttpError(503, `Supabase load failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   if (isFirestoreStorage()) {
@@ -5414,6 +5445,20 @@ async function loadState(options: { forceRefresh?: boolean } = {}): Promise<AppS
  * Re-read one contract from shared storage so device limit decisions use the latest paid/balance fields.
  */
 async function refreshContractFromStorage(state: AppState, contractId: string) {
+  if (isSupabaseStorage()) {
+    try {
+      const remoteState = await withTimeout(loadSupabaseState(), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase contract refresh timed out");
+      const found = remoteState.contracts.find((contract) => contract.id === contractId);
+      if (!found) return;
+      const index = state.contracts.findIndex((item) => item.id === contractId);
+      if (index >= 0) state.contracts[index] = found;
+      else state.contracts.unshift(found);
+      cachedState = state;
+    } catch (error) {
+      console.error(`Contract refresh failed for ${contractId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return;
+  }
   if (!isFirestoreStorage() || !contractId) return;
   try {
     // Single-doc mode: reload full state cheaply (1 read) and replace the contract.
@@ -5478,7 +5523,169 @@ async function loadJsonState(): Promise<AppState> {
   return state;
 }
 
+function isSupabaseStorage() {
+  return STORAGE_MODE === "supabase";
+}
+
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
+}
+
+function currentStorageMode() {
+  if (isSupabaseStorage()) return "supabase";
+  if (isFirestoreStorage()) return "firestore";
+  return "json";
+}
+
+function remoteStorageReady() {
+  if (isSupabaseStorage()) return isSupabaseConfigured();
+  if (isFirestoreStorage()) return true;
+  return false;
+}
+
+function storageDescription() {
+  if (isSupabaseStorage()) {
+    return isSupabaseConfigured()
+      ? `Supabase (${SUPABASE_URL}/${SUPABASE_RECORDS_TABLE})`
+      : "Supabase (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)";
+  }
+  if (isFirestoreStorage()) {
+    return `Firestore (${FIREBASE_PROJECT_ID}/${FIRESTORE_DATABASE || "(default)"}/top-level collections)`;
+  }
+  return `JSON (${DATA_FILE})`;
+}
+
+function assertSupabaseConfigured() {
+  if (!SUPABASE_URL) throw new Error("SUPABASE_URL is not set");
+  if (!SUPABASE_SERVICE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+}
+
+function supabaseHeaders(extra: Record<string, string> = {}) {
+  assertSupabaseConfigured();
+  return {
+    apikey: SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
+function supabaseUrl(path = "") {
+  assertSupabaseConfigured();
+  return `${SUPABASE_URL}/rest/v1/${SUPABASE_RECORDS_TABLE}${path}`;
+}
+
+async function supabaseFetch(path: string, init: RequestInit = {}) {
+  const response = await fetch(supabaseUrl(path), {
+    ...init,
+    headers: {
+      ...supabaseHeaders(),
+      ...(init.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`${response.status} ${response.statusText}${text ? ` - ${text}` : ""}`);
+  }
+  return response;
+}
+
+async function loadSupabaseState(): Promise<AppState> {
+  const response = await supabaseFetch("?select=type,id,data");
+  const rows = (await response.json()) as { type: string; id: string; data: any }[];
+  if (!rows.length) {
+    const localState = await loadJsonState();
+    await saveSupabaseState(localState);
+    return normalizeState(localState);
+  }
+  const state = seedState();
+  rows.forEach((row) => {
+    const type = clean(row.type);
+    const data = row.data || {};
+    if (type === "settings" && row.id === "main") {
+      state.settings = { ...state.settings, ...data };
+      return;
+    }
+    if (type === "contracts") state.contracts.push({ id: row.id, ...data });
+    if (type === "inventoryDevices") state.inventoryDevices.push({ id: row.id, ...data });
+    if (type === "intakes") state.intakes.push({ id: row.id, ...data });
+    if (type === "notifications") state.notifications.push({ id: row.id, ...data });
+    if (type === "syncEvents") state.syncEvents.push({ id: row.id, ...data });
+    if (type === "deviceEvents") state.deviceEvents.push({ id: row.id, ...data });
+    if (type === "soldPhones") state.soldPhones.push({ id: row.id, ...data });
+    if (type === "supplies") state.supplies.push({ id: row.id, ...data });
+    if (type === "audit") state.audit.push({ id: row.id, ...data });
+  });
+  return normalizeState(state);
+}
+
+async function saveSupabaseState(state: AppState) {
+  const records = supabaseRecordsForState(state);
+  if (!records.length) return;
+  await supabaseFetch("?on_conflict=type,id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(records),
+  });
+}
+
+async function saveSupabaseRecord(type: string, id: string, value: unknown) {
+  await supabaseFetch("?on_conflict=type,id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([supabaseRecord(type, id, value)]),
+  });
+}
+
+async function deleteSupabaseRecord(type: string, id: string) {
+  const path = `?type=eq.${encodeURIComponent(type)}&id=eq.${encodeURIComponent(id)}`;
+  await supabaseFetch(path, {
+    method: "DELETE",
+    headers: { Prefer: "return=minimal" },
+  });
+}
+
+function supabaseRecord(type: string, id: string, value: unknown) {
+  const data = toFirestoreRecord(value) as any;
+  delete data.id;
+  return {
+    type,
+    id,
+    data,
+    updated_at: nowIso(),
+  };
+}
+
+function supabaseRecordsForState(state: AppState) {
+  const records: any[] = [supabaseRecord("settings", "main", state.settings)];
+  const add = (type: string, items: any[]) => {
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      if (item?.id) records.push(supabaseRecord(type, item.id, item));
+    });
+  };
+  add("contracts", state.contracts);
+  add("inventoryDevices", state.inventoryDevices);
+  add("intakes", state.intakes);
+  add("notifications", state.notifications);
+  add("syncEvents", state.syncEvents);
+  add("deviceEvents", state.deviceEvents);
+  add("soldPhones", state.soldPhones || []);
+  add("supplies", state.supplies || []);
+  add("audit", state.audit);
+  return records;
+}
+
 async function saveState(state: AppState, options: { requireFirestore?: boolean } = {}) {
+  if (isSupabaseStorage()) {
+    try {
+      await withTimeout(saveSupabaseState(state), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase save timed out");
+    } catch (error) {
+      throw new HttpError(503, `Supabase save failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    cachedState = state;
+    broadcastStateChange();
+    return;
+  }
   if (options.requireFirestore && STORAGE_MODE === "firestore" && !isFirestoreStorage()) {
     throw new HttpError(503, firestoreLastError
       ? `Firebase save failed: ${firestoreLastError}`
@@ -5524,6 +5731,15 @@ async function saveDeviceRuntimeChanges(
   state: AppState,
   _changes: RuntimeSaveChanges
 ) {
+  if (isSupabaseStorage()) {
+    try {
+      await withTimeout(saveSupabaseState(state), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase runtime save timed out");
+    } catch (error) {
+      console.error(`Supabase runtime save failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+    return;
+  }
   if (!isFirestoreStorage()) {
     await saveJsonState(state);
     return;
@@ -5692,6 +5908,10 @@ async function saveFirestoreState(state: AppState) {
 
 async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, value: unknown, required = false) {
   if (!id) return;
+  if (isSupabaseStorage()) {
+    await saveSupabaseRecord(collectionKey, id, value);
+    return;
+  }
   if (!isFirestoreStorage()) {
     if (required && STORAGE_MODE === "firestore") {
       throw new HttpError(503, firestoreLastError
@@ -5719,6 +5939,10 @@ async function saveFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDe
 
 async function deleteFirestoreCoreRecord(collectionKey: "contracts" | "inventoryDevices", id: string, required = false) {
   if (!id) return;
+  if (isSupabaseStorage()) {
+    await deleteSupabaseRecord(collectionKey, id);
+    return;
+  }
   if (!isFirestoreStorage()) {
     if (required && STORAGE_MODE === "firestore") {
       throw new HttpError(503, firestoreLastError
@@ -6087,8 +6311,8 @@ function buildPublicState(state: AppState) {
     // Runtime config for the admin browser (server constants are NOT in scope in /assets/app.js).
     config: {
       publicBaseUrl: PUBLIC_BASE_URL,
-      storageMode: isFirestoreStorage() ? "firestore" : "json",
-      remoteReady: isFirestoreStorage() || !process.env.VERCEL,
+      storageMode: currentStorageMode(),
+      remoteReady: remoteStorageReady() || !process.env.VERCEL,
       mpesaConfigured: MPESA_CONFIGURED,
       mpesaEnabled: PAYBILL_ENABLED,
       mpesaShortcode: PAYBILL_BUSINESS_NUMBER,
@@ -6485,12 +6709,22 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
   const existingByReceipt = findPaymentByReference(state, receipt, "M-Pesa");
   if (existingByReceipt) {
     markPendingStkEvent(state, stk.checkoutRequestId, "Synced", `STK already recorded as ${receipt}`);
+    const automaticControls = applyAutomaticPaymentControls(state, [existingByReceipt.contract]);
+    if (automaticControls.changed) {
+      await dispatchPendingDeviceCommands(state, 25);
+    }
+    await saveState(state);
     sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
   const existingByCheckout = findPaymentByReference(state, stk.checkoutRequestId, "M-Pesa");
   if (existingByCheckout) {
     markPendingStkEvent(state, stk.checkoutRequestId, "Synced", `STK already recorded for ${stk.checkoutRequestId}`);
+    const automaticControls = applyAutomaticPaymentControls(state, [existingByCheckout.contract]);
+    if (automaticControls.changed) {
+      await dispatchPendingDeviceCommands(state, 25);
+    }
+    await saveState(state);
     sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
     return true;
   }
@@ -6537,9 +6771,10 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
     await dispatchPendingDeviceCommands(state, 25);
   }
   addAudit(state, "System", "STK Push payment confirmed", `${contract.id} - ${formatKes(payment.amount)} (${receipt})`);
+  const policy = buildDevicePolicy(state, contract);
   await saveState(state);
   console.log(`[mpesa-callback] paid contract=${contract.id} receipt=${receipt} amount=${amount}`);
-  sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted" });
+  sendJson(response, 200, { ResultCode: 0, ResultDesc: "Accepted", policy });
   return true;
 }
 
@@ -7809,7 +8044,7 @@ function getReadiness(state: AppState) {
     {
       title: "Portfolio engine",
       status: summary.total > 0 ? "Ready" : "Attention",
-      detail: `${summary.total} contracts with automated balance, arrears, and status calculations.`,
+      detail: `${summary.total} contracts with automated remaining-balance, overdue-amount, and status calculations.`,
     },
     {
       title: "Payment reconciliation",
