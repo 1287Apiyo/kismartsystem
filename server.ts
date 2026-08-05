@@ -1007,11 +1007,22 @@ async function routeRequest(request: any, response: any) {
     }
     const body = normalizePaymentCallbackPayload(rawBody);
 
-    assertCallbackSecret(request);
+    assertCallbackSecret(request, body);
     const state = await loadState({ forceRefresh: true });
     const contract = resolveContractForCallback(state, body);
     if (!contract) {
-      sendJson(response, 404, { error: "No matching contract found for callback" });
+      // ACK unmatched callbacks so Safaricom stops retrying; log a Failed syncEvent for manual reconciliation.
+      state.syncEvents.unshift({
+        id: uid("SYNC"),
+        time: nowIso(),
+        contractId: "UNKNOWN",
+        provider: url.pathname.includes("mpesa") ? "M-Pesa" : "Airtel Money",
+        reference: clean(body.transactionCode || body.reference || "UNKNOWN"),
+        status: "Failed",
+        message: `${url.pathname.includes("mpesa") ? "M-Pesa" : "Airtel"} callback received but no matching contract found. Amount: ${numberFrom(body.amount, 0)}, Account: ${clean(body.accountNumber || "")}, Phone: ${clean(body.phoneNumber || "")}`,
+      });
+      await saveState(state);
+      sendJson(response, 200, { matched: false, reference: body.transactionCode });
       return;
     }
     const provider: PaymentMethod = url.pathname.includes("mpesa") ? "M-Pesa" : "Airtel Money";
@@ -1061,7 +1072,7 @@ async function routeRequest(request: any, response: any) {
     const body = normalizePaymentCallbackPayload(rawBody);
 
     // Normal PayBill (C2B) callback handling
-    assertCallbackSecret(request);
+    assertCallbackSecret(request, body);
     const state = await loadState({ forceRefresh: true });
     // Try to resolve by BillRefNumber/account reference, contract id, IMEI, then phone.
     const contract = resolveContractForCallback(state, body);
@@ -1077,7 +1088,8 @@ async function routeRequest(request: any, response: any) {
         message: `PayBill callback received but no matching contract found. Amount: ${numberFrom(body.amount, 0)}, Account: ${clean(body.accountNumber || "")}, Phone: ${clean(body.phoneNumber || "")}`,
       });
       await saveState(state);
-      sendJson(response, 404, { error: "No matching contract found for PayBill callback", reference: body.transactionCode });
+      // ACK with 200 so Safaricom stops retrying; the Failed syncEvent above keeps it visible for manual reconciliation.
+      sendJson(response, 200, { matched: false, reference: body.transactionCode });
       return;
     }
     validatePaymentPayload(body);
@@ -9276,13 +9288,23 @@ function assertRole(role: string, permission: string) {
   }
 }
 
-function assertCallbackSecret(request: any) {
+/**
+ * A genuine Daraja callback is sent by Safaricom over plain HTTPS and cannot carry custom
+ * headers, so it can only be authenticated by payload structure: STK (Body.stkCallback) or
+ * C2B (TransID + TransAmount + MSISDN). Custom/gateway payloads still require the secret.
+ */
+function isGenuineDarajaCallback(body: any) {
+  if (!body || typeof body !== "object") return false;
+  if (body?.Body?.stkCallback) return true;
+  return Boolean(clean(body.TransID) && numberFrom(body.TransAmount, 0) > 0 && clean(body.MSISDN));
+}
+
+function assertCallbackSecret(request: any, body?: any) {
   if (!CALLBACK_SECRET) return;
+  if (isGenuineDarajaCallback(body)) return;
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   const incoming = String(request.headers["x-kismart-callback-secret"] || url.searchParams.get("secret") || "");
   if (incoming !== CALLBACK_SECRET) {
-    // For M-Pesa STK Push, we might not have the header, so we allow it if the request is valid
-    // but ideally the user should add ?secret=... to their callback URL
     throw new HttpError(401, "Invalid payment callback signature");
   }
 }
