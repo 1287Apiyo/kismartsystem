@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ─────────────────────────────────────────────────────────────────────
+    // Device unlock state.
+    // Clients (dashboard/app) may READ the unlock state, but the ONLY writer
+    // is the M-Pesa callback handler in the backend. The backend uses the
+    // Firebase Admin SDK, which bypasses these rules — so rules are the
+    // second layer that makes it impossible for any client-side code to
+    // write `unlocked = false` (or any other device field).
+    // ─────────────────────────────────────────────────────────────────────
+    match /devices/{deviceId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Payment confirmations (payments/{CheckoutRequestID}).
+    // Server-authoritative. No client read or write — a client can neither
+    // forge a confirmation nor overwrite a pending/success status.
+    // ─────────────────────────────────────────────────────────────────────
+    match /payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Everything else (kismartApp/state, contacts, syncEvents, ...).
+    // All app data is written by the backend only (Admin SDK). Clients use
+    // the backend HTTP API for reads; direct Firestore access is denied.
+    // ─────────────────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}

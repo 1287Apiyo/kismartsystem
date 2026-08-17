@@ -1,0 +1,10 @@
+const css = await (await fetch('https://kismartsystem.vercel.app/assets/app.css')).text();
+const a = css.indexOf('.edit-dialog-actions');
+console.log('actions idx:', a);
+if (a >= 0) console.log(JSON.stringify(css.slice(a, a + 400)));
+const m = css.indexOf('@media (max-width: 840px)');
+console.log('media840 idx:', m);
+const p = css.indexOf('.edit-payment-row {');
+console.log('payment-row idx:', p);
+if (p >= 0) console.log(JSON.stringify(css.slice(p, p + 300)));
+process.exit(0);
