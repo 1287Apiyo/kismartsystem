@@ -629,6 +629,16 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/assets/hero-video.mp4") {
+    const filePath = join(__dirname, "assets", "hero-video.mp4");
+    if (!existsSync(filePath)) {
+      sendJson(response, 404, { error: "Hero video not found" });
+      return;
+    }
+    sendBinary(response, 200, "video/mp4", await readFile(filePath));
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/assets/app.css") {
     sendText(response, 200, "text/css; charset=utf-8", renderStyles());
     return;
@@ -3659,6 +3669,8 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .ks-form label { display: grid; gap: 6px; color: #2f4038; font-size: 12px; font-weight: 700; }
 .ks-form input, .ks-form select, .ks-form textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 42px;
   padding: 10px 12px;
   border: 1px solid #c9d6ce;
@@ -3692,12 +3704,14 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .ks-auth-foot a:hover { color: #0d6b45; }
 
 /* Intake */
+.ks-intake-page { overflow-x: hidden; }
 .ks-intake { padding: 48px 0 64px; }
 .ks-intake-grid {
   display: grid;
-  grid-template-columns: minmax(240px, .9fr) minmax(320px, 440px);
-  gap: 40px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
   align-items: start;
+  max-width: 620px;
 }
 .ks-intake-copy h1 {
   margin: 0 0 12px;
@@ -3707,6 +3721,8 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 }
 .ks-intake-copy p:not(.ks-kicker) { margin: 0; color: #5a6b62; font-size: 15px; line-height: 1.55; max-width: 420px; }
 .ks-intake-form {
+  min-width: 0;
+  width: 100%;
   padding: 22px;
   border: 1px solid #d5e0d9;
   border-radius: 14px;
@@ -3944,7 +3960,6 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   .ks-hero-grid,
   .ks-split,
   .ks-auth-shell,
-  .ks-intake-grid,
   .ks-cta-inner,
   .ks-footer-grid { grid-template-columns: 1fr !important; }
   .ks-quad { grid-template-columns: 1fr 1fr !important; }
@@ -4051,7 +4066,7 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 }
 .sl-pill-white-ghost:hover { background: #f5f5f7; }
 
-/* Hero — centered white type over dark phone image */
+/* Hero — phones image fills the section, words on top */
 .sl-hero {
   position: relative;
   padding: 96px 0 84px;
