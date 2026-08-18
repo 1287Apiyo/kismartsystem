@@ -609,6 +609,26 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/assets/hero-phones.webp") {
+    const filePath = join(__dirname, "assets", "hero-phones.webp");
+    if (!existsSync(filePath)) {
+      sendJson(response, 404, { error: "Hero image not found" });
+      return;
+    }
+    sendBinary(response, 200, "image/webp", await readFile(filePath));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/assets/hero-light.webp") {
+    const filePath = join(__dirname, "assets", "hero-light.webp");
+    if (!existsSync(filePath)) {
+      sendJson(response, 404, { error: "Hero image not found" });
+      return;
+    }
+    sendBinary(response, 200, "image/webp", await readFile(filePath));
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/assets/app.css") {
     sendText(response, 200, "text/css; charset=utf-8", renderStyles());
     return;
@@ -1577,81 +1597,73 @@ function renderSaasLanding() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0a0a0a">
+  <meta name="theme-color" content="#ffffff">
   <meta name="description" content="${shop} — phone installment sales, M-Pesa collections, and remote device control for modern shops.">
   <title>${shop} · Sell phones. Collect. Control.</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="ks-land">
-  <header class="lp-nav">
-    <div class="lp-shell lp-nav-inner">
-      <a class="lp-brand" href="/">
-        <img src="/assets/logo.jpeg" alt="" width="32" height="32">
+<body class="sl-land">
+  <header class="sl-nav">
+    <div class="sl-shell sl-nav-inner">
+      <a class="sl-brand" href="/">
+        <img src="/assets/logo.jpeg" alt="KISMART Global logo" width="26" height="26">
         <span>KISMART</span>
       </a>
-      <nav class="lp-links" aria-label="Primary">
+      <nav class="sl-links" aria-label="Primary">
         <a href="#product">Product</a>
         <a href="#ops">How it works</a>
-        <a href="#control">Control</a>
       </nav>
-      <div class="lp-nav-cta">
-        <a class="lp-link-quiet" href="/intake">Customer intake</a>
-        <a class="lp-btn lp-btn-solid" href="/login">Open admin</a>
+      <div class="sl-nav-cta">
+        <a class="sl-link-quiet" href="/intake">Customer intake</a>
+        <a class="sl-pill sl-pill-dark" href="/login">Open admin</a>
       </div>
     </div>
   </header>
 
   <main>
-    <section class="lp-hero" aria-label="Hero">
-      <div class="lp-hero-bg" aria-hidden="true">
-        <img src="/assets/landing-hero-bg.jpg" alt="" width="1600" height="1000" fetchpriority="high">
-        <div class="lp-hero-shade"></div>
-      </div>
-      <div class="lp-shell">
-        <div class="lp-hero-content">
-          <p class="lp-eyebrow">Phone installment operations</p>
-          <h1>Sell the phone today. Collect with confidence.</h1>
-          <p class="lp-hero-lead">
-            KISMART manages installment contracts, daily sales and supply logs, printable agreements, M-Pesa collections, and remote device limit until the balance is paid.
-          </p>
-          <div class="lp-hero-actions">
-            <a class="lp-btn lp-btn-solid lp-btn-lg" href="/login">Launch dashboard</a>
-            <a class="lp-btn lp-btn-outline-light lp-btn-lg" href="#product">See features</a>
-          </div>
-          <ul class="lp-hero-points">
-            <li>M-Pesa STK prompts</li>
-            <li>PDF payment plans (EN + 中文)</li>
-            <li>Device limit until paid</li>
-          </ul>
+    <section class="sl-hero">
+      <div class="sl-shell sl-hero-inner">
+        <p class="sl-eyebrow">KISMART Global · Installment operations</p>
+        <h1>Sell the phone today.<br><span>Collect with confidence.</span></h1>
+        <p class="sl-hero-sub">
+          Installment contracts, M-Pesa collections, printable agreements, and remote device control — one clean workspace for your shop.
+        </p>
+        <div class="sl-hero-actions">
+          <a class="sl-pill sl-pill-green sl-pill-lg" href="/login">Launch dashboard</a>
+          <a class="sl-pill sl-pill-clay sl-pill-lg" href="#product">See features</a>
         </div>
+        <ul class="sl-hero-chips" aria-label="Highlights">
+          <li>M-Pesa STK prompts</li>
+          <li>PDF payment plans (EN + 中文)</li>
+          <li>Device limit until paid</li>
+        </ul>
       </div>
     </section>
 
-    <section class="lp-section" id="product">
-      <div class="lp-shell">
-        <div class="lp-section-head">
-          <p class="lp-eyebrow">Product</p>
+    <section class="sl-section sl-section-alt" id="product">
+      <div class="sl-shell">
+        <div class="sl-section-head">
           <h2>What the shop desk runs every day</h2>
           <p>One admin workspace for contracts, collections, documents, and device policy.</p>
         </div>
-        <div class="lp-features">
-          <article class="lp-feature">
-            <p class="lp-tag">Collections</p>
+        <div class="sl-cards">
+          <article class="sl-card">
+            <span class="sl-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle><path d="M6 12h.01M18 12h.01"></path></svg></span>
             <h3>Cash, M-Pesa, Airtel, bank</h3>
             <p>Post payments to the right account. Remaining balances and overdue amounts update for the team.</p>
           </article>
-          <article class="lp-feature">
-            <p class="lp-tag">Onboarding</p>
+          <article class="sl-card">
+            <span class="sl-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg></span>
             <h3>Register financed phones</h3>
             <p>Customer, IMEI, deposit, and plan — then print the payment agreement to sign.</p>
           </article>
-          <article class="lp-feature">
-            <p class="lp-tag">Devices</p>
+          <article class="sl-card">
+            <span class="sl-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg></span>
             <h3>Enroll, limit, restore</h3>
             <p>Unpaid handsets stay on the pay screen until M-Pesa clears the balance.</p>
           </article>
-          <article class="lp-feature">
-            <p class="lp-tag">Documents</p>
+          <article class="sl-card">
+            <span class="sl-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></span>
             <h3>Sales and supply PDFs</h3>
             <p>Daily sold-phone logs and partner supply sheets in English or Chinese.</p>
           </article>
@@ -1659,30 +1671,30 @@ function renderSaasLanding() {
       </div>
     </section>
 
-    <section class="lp-section lp-section-alt" id="ops">
-      <div class="lp-shell">
-        <div class="lp-section-head">
-          <p class="lp-eyebrow">How it works</p>
+    <section class="sl-section" id="ops">
+      <div class="sl-shell">
+        <div class="sl-section-head">
           <h2>From shelf to final installment</h2>
+          <p>Four steps. One desk.</p>
         </div>
-        <div class="lp-steps">
-          <article>
-            <span>1</span>
+        <div class="sl-steps">
+          <article class="sl-step">
+            <span class="sl-step-num">01</span>
             <h3>Capture the deal</h3>
             <p>Intake or full registration with plan templates and stock presets.</p>
           </article>
-          <article>
-            <span>2</span>
+          <article class="sl-step">
+            <span class="sl-step-num">02</span>
             <h3>Print and hand over</h3>
             <p>Generate the payment plan PDF, get signatures, enroll the device agent.</p>
           </article>
-          <article>
-            <span>3</span>
+          <article class="sl-step">
+            <span class="sl-step-num">03</span>
             <h3>Collect payments</h3>
             <p>STK prompts, cash posts, overdue views, and limit when accounts fall behind.</p>
           </article>
-          <article>
-            <span>4</span>
+          <article class="sl-step">
+            <span class="sl-step-num">04</span>
             <h3>Log sales and supply</h3>
             <p>Cash sales and partner supply documented daily for the books.</p>
           </article>
@@ -1690,47 +1702,23 @@ function renderSaasLanding() {
       </div>
     </section>
 
-    <section class="lp-section" id="control">
-      <div class="lp-shell lp-split">
-        <div class="lp-split-copy">
-          <p class="lp-eyebrow">Why shops use KISMART</p>
-          <h2>Protect stock. Keep customers. Get paid.</h2>
-          <ul class="lp-checklist">
-            <li>Payment plan agreements that match your shop process</li>
-            <li>Remote limit and full lock when accounts fall behind</li>
-            <li>Admin login and device sync secrets kept separate</li>
-            <li>Public HTTPS so phones sync on mobile data, not only shop Wi‑Fi</li>
-          </ul>
-          <div class="lp-hero-actions">
-            <a class="lp-btn lp-btn-solid" href="/login">Sign in to admin</a>
-            <a class="lp-btn lp-btn-outline" href="/intake">Customer intake</a>
-          </div>
-        </div>
-        <div class="lp-split-visual">
-          <img src="/assets/landing-hero-bg.jpg" alt="Phone lineup" loading="lazy">
-        </div>
-      </div>
-    </section>
-
-    <section class="lp-cta">
-      <div class="lp-shell lp-cta-inner">
-        <div>
-          <h2>Open the desk. Run today’s book.</h2>
-          <p>Contracts, collections, sales logs, supply docs, and device control — one login.</p>
-        </div>
-        <a class="lp-btn lp-btn-solid lp-btn-lg" href="/login">Enter ${shop} admin</a>
+    <section class="sl-cta">
+      <div class="sl-shell">
+        <h2>Open the desk. Run today's book.</h2>
+        <p>Contracts, collections, sales logs, supply docs, and device control — one login.</p>
+        <a class="sl-pill sl-pill-green sl-pill-lg" href="/login">Enter ${shop} admin</a>
       </div>
     </section>
   </main>
 
-  <footer class="lp-footer">
-    <div class="lp-shell lp-footer-inner">
-      <a class="lp-brand" href="/">
-        <img src="/assets/logo.jpeg" alt="" width="28" height="28">
+  <footer class="sl-footer">
+    <div class="sl-shell sl-footer-inner">
+      <a class="sl-brand" href="/">
+        <img src="/assets/logo.jpeg" alt="KISMART Global logo" width="24" height="24">
         <span>KISMART</span>
       </a>
       <p>${shop} · Imports. Products. Possibilities.</p>
-      <div class="lp-footer-links">
+      <div class="sl-footer-links">
         <a href="/login">Admin</a>
         <a href="/intake">Intake</a>
         <a href="#product">Product</a>
@@ -1748,45 +1736,43 @@ function renderLanding() {
 
 function renderLogin(error = "") {
   const shop = escapeHtml(SHOP_NAME);
-  const errorMarkup = error ? `<div class="ks-alert" role="alert">${escapeHtml(error)}</div>` : "";
+  const errorMarkup = error ? `<div class="sl-auth-error" role="alert">${escapeHtml(error)}</div>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d1f17">
+  <meta name="theme-color" content="#faf9f5">
   <title>Admin sign in | ${shop}</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body class="ks-auth">
-  <div class="ks-auth-shell">
-    <aside class="ks-auth-brand">
-      <a class="ks-logo light" href="/"><img class="ks-mark-img" src="/assets/logo.jpeg" alt="" width="28" height="28">KISMART</a>
-      <h1>Admin workspace for installment operations</h1>
-      <p>Manage contracts, payments, and device policy from one protected dashboard.</p>
-      <ul>
-        <li>Portfolio and collections</li>
-        <li>Device limit and restore</li>
-        <li>Audit and sync history</li>
-      </ul>
-    </aside>
-    <main class="ks-auth-main">
-      <div class="ks-auth-card">
-        <p class="ks-kicker">Admin sign in</p>
-        <h2>Welcome back</h2>
-        <p class="ks-auth-sub">Sign in to manage contracts, payments, and device operations.</p>
-        <form class="ks-form" method="post" action="/login">
-          ${errorMarkup}
-          <label><span>Email</span><input name="email" type="email" value="${escapeHtml(ADMIN_EMAIL)}" autocomplete="username" required autofocus></label>
-          <label><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
-          <button class="ks-btn ks-btn-primary ks-btn-block" type="submit">Sign in</button>
-        </form>
-        <p class="ks-auth-demo">Demo: ${escapeHtml(ADMIN_EMAIL)} / ${escapeHtml(ADMIN_PASSWORD)}</p>
-        <p class="ks-auth-meta">${shop} · v${VERSION}</p>
-      </div>
-      <p class="ks-auth-foot"><a href="/">← Back to home</a></p>
-    </main>
-  </div>
+<body class="sl-auth">
+  <main class="sl-auth-shell">
+    <div class="sl-auth-card">
+      <a class="sl-auth-brand" href="/">
+        <img src="/assets/logo.jpeg" alt="KISMART Global logo" width="36" height="36">
+        <span>KISMART</span>
+      </a>
+      <p class="sl-auth-kicker">Admin sign in</p>
+      <h1>Welcome back</h1>
+      <p class="sl-auth-sub">Sign in to manage contracts, payments, and device operations.</p>
+      <form class="sl-auth-form" method="post" action="/login">
+        ${errorMarkup}
+        <label>
+          <span>Email</span>
+          <input name="email" type="email" value="${escapeHtml(ADMIN_EMAIL)}" autocomplete="username" placeholder="admin@kismart.local" required autofocus>
+        </label>
+        <label>
+          <span>Password</span>
+          <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+        </label>
+        <button class="sl-auth-btn" type="submit">Sign in</button>
+      </form>
+      <p class="sl-auth-demo">Demo access · ${escapeHtml(ADMIN_EMAIL)} / ${escapeHtml(ADMIN_PASSWORD)}</p>
+      <p class="sl-auth-meta">${shop} · v${VERSION}</p>
+    </div>
+    <p class="sl-auth-foot"><a href="/">← Back to home</a></p>
+  </main>
 </body>
 </html>`;
 }
@@ -3990,439 +3976,453 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .ks-land * { box-sizing: border-box; }
 .lp-shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
 
-/* Nav — solid dark bar */
-.lp-nav {
+/* ─── Clean iPhone-style UI — white, hairline, precise ─── */
+.sl-land {
+  margin: 0;
+  color: #1d1d1f;
+  background: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.sl-land, .sl-land * { box-sizing: border-box; }
+.sl-land a { text-decoration: none; color: inherit; }
+.sl-shell { width: min(1080px, calc(100% - 40px)); margin: 0 auto; }
+
+/* Nav — frosted white */
+.sl-nav {
   position: sticky;
   top: 0;
-  z-index: 40;
-  background: #0a0a0a;
-  border-bottom: 1px solid #1c1c1c;
+  z-index: 50;
+  background: rgba(255, 255, 255, .8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, .08);
 }
-.lp-nav-inner {
+.sl-nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 64px;
+  min-height: 56px;
 }
-.lp-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: #ffffff;
-  font-weight: 750;
-  font-size: 16px;
-  text-decoration: none;
-}
-.lp-brand img {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  object-fit: cover;
-  background: #fff;
-  border: 1px solid #2a2a2a;
-}
-.lp-links { display: flex; gap: 24px; }
-.lp-links a {
-  color: #a8b5ae;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-.lp-links a:hover { color: #ffffff; }
-.lp-nav-cta { display: flex; align-items: center; gap: 14px; }
-.lp-link-quiet {
-  color: #a8b5ae;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-.lp-link-quiet:hover { color: #ffffff; }
+.sl-brand { display: inline-flex; align-items: center; gap: 9px; color: #1d1d1f; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.sl-brand img { width: 26px; height: 26px; border-radius: 7px; object-fit: cover; }
+.sl-links { display: flex; gap: 30px; }
+.sl-links a { color: #515154; font-size: 14px; font-weight: 500; transition: color .16s ease; }
+.sl-links a:hover { color: #1d1d1f; }
+.sl-nav-cta { display: flex; align-items: center; gap: 18px; }
+.sl-link-quiet { color: #515154; font-size: 14px; font-weight: 500; }
+.sl-link-quiet:hover { color: #1d1d1f; }
 
-/* Buttons — solid only */
-.lp-btn {
+/* Pill buttons */
+.sl-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid transparent;
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: 980px;
   font-size: 14px;
-  font-weight: 650;
-  text-decoration: none;
-  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  transition: background .16s ease, transform .16s ease, box-shadow .16s ease;
 }
-.lp-btn-lg { min-height: 48px; padding: 0 20px; font-size: 15px; }
-.lp-btn-solid {
+.sl-pill-lg { min-height: 48px; padding: 0 26px; font-size: 15px; }
+.sl-pill-dark {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, .05);
+}
+.sl-pill-dark:hover { background: rgba(0, 0, 0, .09); }
+.sl-pill-green {
   color: #ffffff;
   background: #0d6b45;
-  border-color: #0d6b45;
+  box-shadow: 0 8px 20px rgba(13, 107, 69, .26);
 }
-.lp-btn-solid:hover { background: #0b5a3a; border-color: #0b5a3a; }
-.lp-btn-outline {
-  color: #e8f0eb;
-  background: transparent;
-  border-color: #3a3a3a;
+.sl-pill-green:hover { background: #0b5a3a; transform: translateY(-1px); }
+.sl-pill-clay {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, .05);
 }
-.lp-btn-outline:hover { border-color: #0d6b45; color: #ffffff; }
+.sl-pill-clay:hover { background: rgba(0, 0, 0, .09); }
+.sl-pill-white-ghost {
+  color: #1d1d1f;
+  background: #ffffff;
+  border: 1px solid #d2d2d7;
+}
+.sl-pill-white-ghost:hover { background: #f5f5f7; }
 
-/* Hero — full-bleed phones image; copy aligned to product shell, spans full width */
-.lp-hero {
+/* Hero — centered white type over dark phone image */
+.sl-hero {
   position: relative;
-  min-height: min(88vh, 760px);
-  display: flex;
-  align-items: center;
-  padding: 96px 0 72px;
-  overflow: hidden;
-  border-bottom: 1px solid #0a1210;
-  background: #0b1511;
-}
-.lp-hero-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-.lp-hero-bg img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 42%;
-}
-/* Even dark wash so type reads across the full content width */
-.lp-hero-shade {
-  position: absolute;
-  inset: 0;
-  background: rgba(8, 14, 11, 0.72);
-}
-/* Same horizontal track as Product cards (Collections … Documents) */
-.lp-hero .lp-shell {
-  position: relative;
-  z-index: 1;
-}
-.lp-hero-content {
-  width: 100%;
-  text-align: left;
-  /* Matches .lp-features 4-card row: start at Collections, end at Documents */
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0;
-}
-.lp-eyebrow {
-  margin: 0 0 12px;
-  color: #4ade80;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.lp-hero .lp-eyebrow { color: #9fd4b8; }
-.lp-hero h1 {
-  margin: 0;
-  width: 100%;
-  max-width: 100%;
-  color: #ffffff;
-  font-size: clamp(32px, 5vw, 52px);
-  line-height: 1.12;
-  font-weight: 750;
-  letter-spacing: -.02em;
-}
-.lp-hero-lead {
-  margin: 18px 0 0;
-  width: 100%;
-  max-width: 100%;
-  color: #c5d6cc;
-  font-size: 16px;
-  line-height: 1.6;
-}
-.lp-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 28px;
-  width: 100%;
-}
-.lp-btn-outline-light {
-  color: #ffffff;
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.35);
-}
-.lp-btn-outline-light:hover {
-  border-color: #ffffff;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
-}
-.lp-hero-points {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin: 28px 0 0;
-  padding: 0;
-  list-style: none;
-  width: 100%;
-}
-.lp-hero-points li {
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 6px;
-  background: rgba(8, 14, 11, 0.55);
-  color: #e8f0eb;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-/* Sections — black page, soft card panels */
-.lp-section {
-  padding: 64px 0;
-  background: #0a0a0a;
-  border-bottom: 1px solid #1c1c1c;
-}
-.lp-section-alt { background: #0f0f0f; }
-.lp-section-head {
-  max-width: 560px;
-  margin-bottom: 28px;
-}
-.lp-section-head h2 {
-  margin: 0 0 10px;
-  color: #ffffff;
-  font-size: clamp(22px, 2.8vw, 28px);
-  line-height: 1.2;
-  font-weight: 750;
-  letter-spacing: -.015em;
-}
-.lp-section-head p:not(.lp-eyebrow) {
-  margin: 0;
-  color: #9aa8a0;
-  font-size: 15px;
-  line-height: 1.55;
-}
-
-/* Product cards — 4 across, text only, centered */
-.lp-features {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.lp-feature {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
+  padding: 96px 0 84px;
   text-align: center;
-  padding: 24px 18px 26px;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  background: #121212;
-  min-height: 180px;
-}
-.lp-section-alt .lp-feature { background: #141414; }
-.lp-tag {
-  margin: 0 0 10px;
-  color: #4ade80;
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-}
-.lp-feature h3 {
-  margin: 0 0 10px;
   color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.3;
-  max-width: 16em;
+  background: url('/assets/hero-phones.webp') center 62% / cover no-repeat, #0c0c0e;
 }
-.lp-feature p:not(.lp-tag) {
-  margin: 0;
-  color: #9aa8a0;
-  font-size: 14px;
-  line-height: 1.55;
-  max-width: 22em;
-}
-
-/* Steps */
-.lp-steps {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.lp-steps article {
-  padding: 20px 18px;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  background: #121212;
-}
-.lp-steps span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: #0d6b45;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 750;
-}
-.lp-steps h3 {
-  margin: 14px 0 8px;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-}
-.lp-steps p {
-  margin: 0;
-  color: #9aa8a0;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-/* Split control section */
-.lp-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 40px;
-  align-items: center;
-}
-.lp-split-copy h2 {
-  margin: 0;
-  max-width: 440px;
-  color: #ffffff;
-  font-size: clamp(22px, 2.8vw, 28px);
-  line-height: 1.2;
-  font-weight: 750;
-}
-.lp-checklist {
-  margin: 20px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 10px;
-}
-.lp-checklist li {
-  position: relative;
-  padding: 12px 14px 12px 36px;
-  border: 1px solid #242424;
-  border-radius: 8px;
-  background: #121212;
-  color: #c5d0ca;
-  font-size: 14px;
-  line-height: 1.45;
-}
-.lp-checklist li::before {
+.sl-hero::before {
   content: "";
   position: absolute;
-  left: 14px;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  border-radius: 50%;
-  background: #0d6b45;
+  inset: 0;
+  background: rgba(5, 5, 7, .45);
 }
-.lp-split-visual {
-  border-radius: 12px;
+.sl-hero-inner { position: relative; z-index: 1; }
+.sl-hero .sl-eyebrow {
+  background: rgba(255, 255, 255, .1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, .18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.sl-hero .sl-hero-chips li {
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(255, 255, 255, .16);
+  color: #f2f2f4;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.sl-hero .sl-pill-clay {
+  color: #ffffff;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.sl-hero .sl-pill-clay:hover { background: rgba(255, 255, 255, .2); }
+.sl-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 20px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: #eaf4ee;
+  color: #0d6b45;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: .01em;
+}
+.sl-hero h1 {
+  margin: 0 auto;
+  max-width: 880px;
+  color: #ffffff;
+  font-size: clamp(40px, 5.8vw, 64px);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -.035em;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, .55);
+}
+.sl-hero h1 span { color: #6ee7a0; }
+.sl-hero-sub {
+  margin: 20px auto 0;
+  max-width: 640px;
+  color: rgba(255, 255, 255, .84);
+  font-size: 18px;
+  line-height: 1.55;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .5);
+}
+.sl-hero-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+.sl-hero-chips {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sl-hero-chips li {
+  padding: 8px 15px;
+  border: 1px solid #e8e8ed;
+  border-radius: 999px;
+  color: #515154;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sl-hero-shot {
+  margin: 60px auto 0;
+  border-radius: 24px;
   overflow: hidden;
-  border: 1px solid #242424;
-  background: #111111;
-  aspect-ratio: 4 / 3;
+  border: 1px solid #e8e8ed;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, .1);
 }
-.lp-split-visual img {
+.sl-hero-shot img { display: block; width: 100%; height: auto; }
+
+/* Sections */
+.sl-section { padding: 88px 0; }
+.sl-section-alt {
+  background: #f5f5f7;
+  border-top: 1px solid #e8e8ed;
+  border-bottom: 1px solid #e8e8ed;
+}
+.sl-section-head {
+  max-width: 660px;
+  margin: 0 auto 52px;
+  text-align: center;
+}
+.sl-section-head h2 {
+  margin: 0 0 14px;
+  color: #1d1d1f;
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -.03em;
+}
+.sl-section-head p { margin: 0; color: #6e6e73; font-size: 18px; line-height: 1.55; }
+
+/* Feature cards — white with hairline borders */
+.sl-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.sl-card {
+  padding: 28px 24px;
+  background: #ffffff;
+  border: 1px solid #e8e8ed;
+  border-radius: 18px;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.sl-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, .08);
+  border-color: #d2d2d7;
+}
+.sl-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  background: #eaf4ee;
+  color: #0d6b45;
+}
+.sl-card-icon svg { width: 22px; height: 22px; }
+.sl-card h3 { margin: 0 0 8px; color: #1d1d1f; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.sl-card p { margin: 0; color: #6e6e73; font-size: 14px; line-height: 1.55; }
+
+/* Steps — big light numerals */
+.sl-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.sl-step {
+  padding: 26px 24px;
+  background: #ffffff;
+  border: 1px solid #e8e8ed;
+  border-radius: 18px;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.sl-step:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(0, 0, 0, .08); }
+.sl-step-num {
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  margin-bottom: 18px;
+  color: #d2d2d7;
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -.04em;
 }
+.sl-step h3 { margin: 0 0 8px; color: #1d1d1f; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.sl-step p { margin: 0; color: #6e6e73; font-size: 14px; line-height: 1.55; }
 
 /* CTA */
-.lp-cta {
-  background: #000000;
-  border-top: 1px solid #1c1c1c;
-  border-bottom: 1px solid #1c1c1c;
-  padding: 48px 0;
+.sl-cta { padding: 88px 0; text-align: center; }
+.sl-cta h2 {
+  margin: 0 0 14px;
+  color: #1d1d1f;
+  font-size: clamp(32px, 4.4vw, 48px);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -.03em;
 }
-.lp-cta-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-.lp-cta h2 {
-  margin: 0 0 8px;
-  color: #ffffff;
-  font-size: clamp(22px, 2.8vw, 28px);
-  font-weight: 750;
-  line-height: 1.2;
-}
-.lp-cta p {
-  margin: 0;
-  max-width: 480px;
-  color: #9aa8a0;
-  font-size: 15px;
-  line-height: 1.5;
-}
+.sl-cta p { margin: 0 0 32px; color: #6e6e73; font-size: 18px; line-height: 1.5; }
 
 /* Footer */
-.lp-footer {
-  background: #0a0a0a;
-  border-top: 1px solid #1c1c1c;
-  padding: 24px 0 28px;
+.sl-footer {
+  padding: 34px 0 40px;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f2;
 }
-.lp-footer-inner {
+.sl-footer-inner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
 }
-.lp-footer p {
+.sl-footer p { margin: 0; color: #86868b; font-size: 13px; }
+.sl-footer-links { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+.sl-footer-links a,
+.sl-footer-links span { color: #86868b; font-size: 13px; font-weight: 500; }
+.sl-footer-links a:hover { color: #1d1d1f; }
+
+/* Auth — clean white card on light gray */
+.sl-auth {
+  min-height: 100vh;
   margin: 0;
-  color: #7a8780;
-  font-size: 13px;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-.lp-footer-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+.sl-auth, .sl-auth * { box-sizing: border-box; }
+.sl-auth a { text-decoration: none; }
+.sl-auth-shell {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+}
+.sl-auth-card {
+  width: min(420px, 100%);
+  padding: 40px 36px 30px;
+  border-radius: 22px;
+  background: #ffffff;
+  border: 1px solid #e8e8ed;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, .07);
+  text-align: center;
+}
+.sl-auth-brand {
+  display: inline-flex;
   align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+  color: #1d1d1f;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -.01em;
 }
-.lp-footer-links a,
-.lp-footer-links span {
-  color: #7a8780;
+.sl-auth-brand img {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.sl-auth-kicker {
+  margin: 0 0 8px;
+  color: #0d6b45;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.sl-auth-card h1 {
+  margin: 0 0 8px;
+  color: #1d1d1f;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -.03em;
+}
+.sl-auth-sub {
+  margin: 0 0 26px;
+  color: #6e6e73;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.sl-auth-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  text-align: left;
+}
+.sl-auth-form > * { width: 100%; }
+.sl-auth-form label {
+  display: grid;
+  gap: 7px;
+  color: #1d1d1f;
   font-size: 13px;
   font-weight: 600;
-  text-decoration: none;
 }
-.lp-footer-links a:hover { color: #4ade80; }
+.sl-auth-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1d1d1f;
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.sl-auth-form input::placeholder { color: #a1a1a6; }
+.sl-auth-form input:focus {
+  border-color: #0d6b45;
+  box-shadow: 0 0 0 4px rgba(13, 107, 69, .14);
+}
+.sl-auth-btn {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: #0d6b45;
+  color: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(13, 107, 69, .26);
+  transition: background .16s ease, transform .12s ease;
+}
+.sl-auth-btn:hover { background: #0b5a3a; }
+.sl-auth-btn:active { transform: translateY(1px); }
+.sl-auth-error {
+  padding: 12px 15px;
+  border-radius: 12px;
+  background: #fdf1ef;
+  border: 1px solid #f3c5bc;
+  color: #a13a2a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.sl-auth-demo {
+  margin: 22px 0 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: #f5f5f7;
+  color: #6e6e73;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.sl-auth-meta { margin: 14px 0 0; color: #a1a1a6; font-size: 12px; }
+.sl-auth-foot { margin-top: 20px; }
+.sl-auth-foot a {
+  color: #515154;
+  font-size: 13.5px;
+  font-weight: 600;
+  transition: color .16s ease;
+}
+.sl-auth-foot a:hover { color: #1d1d1f; }
 
-@media (max-width: 900px) {
-  .lp-links { display: none; }
-  .lp-split,
-  .lp-steps { grid-template-columns: 1fr; }
-  .lp-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .lp-split-visual { aspect-ratio: 16 / 10; max-height: 320px; }
-  .lp-cta-inner { flex-direction: column; align-items: flex-start; }
-  .lp-hero {
-    min-height: min(78vh, 640px);
-    align-items: flex-end;
-    padding: 88px 0 48px;
-  }
-  .lp-hero-shade {
-    background: rgba(8, 14, 11, 0.78);
-  }
+@media (max-width: 960px) {
+  .sl-links { display: none; }
+  .sl-cards,
+  .sl-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 640px) {
-  .lp-shell { width: min(100% - 28px, 1120px); }
-  .lp-link-quiet { display: none; }
-  .lp-hero {
-    min-height: min(72vh, 560px);
-    padding: 80px 0 40px;
-  }
-  .lp-hero h1 { font-size: clamp(28px, 8vw, 36px); }
-  .lp-section { padding: 48px 0; }
-  .lp-features { grid-template-columns: 1fr; }
-  .lp-steps { grid-template-columns: 1fr; }
+@media (max-width: 620px) {
+  .sl-shell { width: min(100% - 28px, 1080px); }
+  .sl-link-quiet { display: none; }
+  .sl-cards,
+  .sl-steps { grid-template-columns: 1fr; }
+  .sl-hero { padding: 72px 0 64px; }
+  .sl-section { padding: 64px 0; }
+  .sl-cta { padding: 64px 0; }
 }
 
 `;
@@ -9648,3 +9648,4 @@ function buildSelfTestState(): AppState {
   });
   return state;
 }
+
