@@ -4774,6 +4774,27 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .sl6-actions .sl6-btn-green, .sl6-cta .sl6-btn-green { background: #102118; border-color: #102118; }
 .sl6-actions .sl6-btn-green:hover, .sl6-cta .sl6-btn-green:hover { background: #1d3328; border-color: #1d3328; }
 
+/* Compact navigation with edge-aligned mobile admin action. */
+.sl6-nav-inner { min-height: 68px; }
+.sl6-shell { width: min(1120px, calc(100% - 48px)); }
+.sl6-nav .sl6-shell { width: min(1120px, calc(100% - 40px)); }
+.sl6-nav .sl6-actions { justify-self: end; }
+@media (max-width: 800px) {
+  .sl6-nav-inner { min-height: 62px; width: calc(100% - 24px); }
+  .sl6-nav .sl6-shell { width: calc(100% - 24px); }
+  .sl6-nav .sl6-actions { justify-self: end; margin-left: auto; }
+  .sl6-nav .sl6-actions .sl6-btn { min-height: 38px; padding: 9px 13px; }
+  .sl6-nav-inner { justify-content: start; gap: 20px; }
+  .sl6-nav .sl6-actions { justify-self: start; margin-left: 0; }
+}
+
+/* Reference-match correction: logo left, Open admin at the far-right arrow position. */
+@media (max-width: 800px) {
+  .sl6-nav { position: relative; }
+  .sl6-nav-inner { position: relative; display: flex; align-items: center; justify-content: flex-start; width: 100%; padding-right: 0; }
+  .sl6-nav .sl6-actions { position: fixed !important; top: 12px !important; right: 12px !important; left: auto !important; z-index: 9999; display: flex; justify-self: auto; margin: 0 !important; transform: none !important; }
+}
+
 
 `;
 
