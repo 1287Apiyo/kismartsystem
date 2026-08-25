@@ -1618,57 +1618,32 @@ function renderSaasLanding() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#23814d">
-  <meta name="description" content="${shop} — the clearer way to sell phones, manage installments, and protect every device.">
-  <title>${shop} · Sell clearly. Collect confidently.</title>
+  <meta name="theme-color" content="#1f7d49">
+  <meta name="description" content="${shop} — the operating layer for phone retail teams that sell on installments.">
+  <title>${shop} · Make every installment simpler.</title>
   <link rel="stylesheet" href="/assets/app.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="sl-land sl5-land">
-  <div class="sl5-topline"><div class="sl5-shell"><span>Built for phone retail teams</span><span>Installments &middot; Collections &middot; Device care</span></div></div>
-  <header class="sl5-nav">
-    <div class="sl5-shell sl5-nav-inner">
-      <a class="sl5-brand" href="/" aria-label="${shop} home"><span class="sl5-brand-mark"><img src="/assets/logo.jpeg" alt="" width="144" height="144"></span><span>KISMART</span></a>
-      <nav class="sl5-nav-links" aria-label="Primary navigation"><a href="#solutions">Solutions</a><a href="#workflow">How it works</a><a href="#proof">Why KISMART</a></nav>
-      <div class="sl5-nav-actions"><a class="sl5-nav-link" href="/intake">Customer intake</a><a class="sl5-button sl5-button-green" href="/login">Open admin <span aria-hidden="true">&#8599;</span></a></div>
-    </div>
-  </header>
-
+<body class="sl-land sl6-land">
+  <header class="sl6-nav"><div class="sl6-shell sl6-nav-inner"><a class="sl6-brand" href="/" aria-label="${shop} home"><span class="sl6-brand-mark"><img src="/assets/logo.jpeg" alt="" width="144" height="144"></span><span>KISMART</span></a><nav class="sl6-links" aria-label="Primary navigation"><a href="#platform">Platform</a><a href="#workflow">How it works</a><a href="#about">Why KISMART</a></nav><div class="sl6-actions"><a href="/intake">Customer intake</a><a class="sl6-btn sl6-btn-green" href="/login">Open admin <span>&#8599;</span></a></div></div></header>
   <main>
-    <section class="sl5-hero">
-      <div class="sl5-shell sl5-hero-grid">
-        <div class="sl5-hero-copy">
-          <p class="sl5-eyebrow"><span class="sl5-eyebrow-dot"></span>KISMART / INSTALLMENT OPERATIONS</p>
-          <h1>Sell confidently.<br><em>Collect clearly.</em></h1>
-          <p class="sl5-hero-text">The simple operating system for phone shops that sell on installments. Keep every customer, payment, agreement, and device on the same page.</p>
-          <div class="sl5-hero-actions"><a class="sl5-button sl5-button-green sl5-button-large" href="/login">Open the admin <span aria-hidden="true">&#8599;</span></a><a class="sl5-text-link" href="#solutions">Explore KISMART <span aria-hidden="true">&#8594;</span></a></div>
-          <div class="sl5-hero-proof"><span class="sl5-proof-avatar">K</span><span><strong>Made for the way you sell</strong><small>From first detail to final installment.</small></span></div>
-        </div>
-        <div class="sl5-hero-visual">
-          <div class="sl5-visual-wash"></div>
-          <div class="sl5-hero-photo-frame"><img src="/assets/kismart-hero.png" alt="KISMART shop owner reviewing installment operations on a phone"></div>
-          <div class="sl5-float-card sl5-float-card-top"><span class="sl5-float-icon">&#10003;</span><span><small>Today</small><strong>12 payments in</strong></span></div>
-          <div class="sl5-float-card sl5-float-card-bottom"><span class="sl5-float-number">KES 1.96m</span><span class="sl5-float-label">Collections this month <b>&#8593; 8.4%</b></span></div>
-          <div class="sl5-hero-sticker"><span>01</span><small>One clear<br>operating view</small></div>
-        </div>
-      </div>
-    </section>
+    <section class="sl6-hero"><div class="sl6-shell sl6-hero-grid"><div class="sl6-hero-copy"><p class="sl6-overline"><span></span>THE OPERATING LAYER FOR PHONE RETAIL</p><h1>Make every installment feel <em>simple.</em></h1><p class="sl6-lead">KISMART gives growing phone shops one clear place to sell, collect, and stay in control of every device after it leaves the counter.</p><div class="sl6-hero-actions"><a class="sl6-btn sl6-btn-green sl6-btn-large" href="/login">Open the admin <span>&#8599;</span></a><a class="sl6-link" href="#platform">See the platform <span>&#8594;</span></a></div><div class="sl6-hero-signoff"><span class="sl6-signoff-mark">K</span><span><strong>Designed for real shop days</strong><small>Customer detail, payment, handover, done.</small></span></div></div><div class="sl6-hero-art"><div class="sl6-art-backdrop"></div><div class="sl6-art-frame"><img src="/assets/kismart-hero.png" alt="KISMART shop owner using a phone in an electronics store"></div><div class="sl6-art-tag"><span>01</span><strong>Every deal,<br>in view.</strong></div><div class="sl6-art-stat"><small>COLLECTED THIS MONTH</small><strong>KES 1.96m</strong><span>&#8593; 8.4% from last month</span></div><div class="sl6-product-phone" aria-label="KISMART mobile collections view"><div class="sl6-phone-notch"></div><div class="sl6-phone-screen"><div class="sl6-phone-status"><span>9:41</span><span>Wi-Fi &middot; 86%</span></div><div class="sl6-phone-head"><span class="sl6-phone-logo">K</span><strong>KISMART</strong><span class="sl6-phone-admin">Open admin</span></div><div class="sl6-phone-welcome"><small>MONDAY, 24 AUGUST</small><h3>Good morning,<br>Brian.</h3></div><div class="sl6-phone-total"><small>COLLECTIONS TODAY</small><strong>KES 84,500</strong><span>&#8593; 12.8% vs last Monday</span><i><b></b></i></div><div class="sl6-phone-due"><strong>Due today</strong><small>4 accounts</small></div><div class="sl6-phone-list"><div><span class="ok">&#10003;</span><span><b>Sarah W.</b><small>Galaxy A15 &middot; paid</small></span><strong>KES 8,500</strong></div><div><span class="warn">!</span><span><b>Daniel O.</b><small>Redmi Note 13 &middot; due</small></span><strong>KES 12,000</strong></div><div><span class="add">+</span><span><b>Mary A.</b><small>New intake</small></span><strong>Open</strong></div></div><div class="sl6-phone-nav"><span class="active">&#8962;<small>Home</small></span><span>&#9633;<small>Book</small></span><span>+<small>Add</small></span><span>&#9675;<small>More</small></span></div></div></div></div></div></section>
 
-    <section class="sl5-trust" id="proof"><div class="sl5-shell sl5-trust-inner"><span class="sl5-trust-label">One system for the whole shop</span><div class="sl5-trust-items"><span>Customer intake</span><i></i><span>Contracts</span><i></i><span>Collections</span><i></i><span>Device protection</span></div></div></section>
+    <section class="sl6-rail"><div class="sl6-shell sl6-rail-grid"><div><span>01</span><strong>One source of truth</strong><small>Every financed phone, accounted for.</small></div><div><span>02</span><strong>Fewer loose ends</strong><small>Know what needs attention next.</small></div><div><span>03</span><strong>Better handovers</strong><small>Clear terms for every customer.</small></div></div></section>
 
-    <section class="sl5-section sl5-intro" id="solutions"><div class="sl5-shell sl5-intro-grid"><div class="sl5-intro-copy"><p class="sl5-eyebrow">A clearer way to grow</p><h2>Everything your team needs to <em>keep moving.</em></h2><p class="sl5-body">KISMART brings the work behind every financed phone into one calm, readable workspace. No loose notebooks. No chasing the next update.</p><a class="sl5-arrow-link" href="/intake">Start with a customer <span>&#8594;</span></a></div><div class="sl5-intro-art"><img src="/assets/kismart-feature.png" alt="KISMART shop owner and customer reviewing a phone installment plan"><div class="sl5-art-caption"><span>Customer conversation</span><strong>Clear terms.<br>Confident handover.</strong></div></div></div></section>
+    <section class="sl6-overview" id="platform"><div class="sl6-shell sl6-overview-grid"><div class="sl6-window-wrap"><div class="sl6-window"><div class="sl6-window-bar"><span></span><span></span><span></span><strong>kismart / portfolio</strong><i>Live</i></div><div class="sl6-window-stats"><div><small>ACTIVE ACCOUNTS</small><strong>148</strong><b>+12 this month</b></div><div><small>TO COLLECT</small><strong>KES 386k</strong><b>42 due this week</b></div><div><small>ON TIME</small><strong>92%</strong><b>Across all plans</b></div></div><div class="sl6-window-table"><div class="table-head"><span>Customer</span><span>Device</span><span>Status</span><span>Balance</span></div><div><strong>Sarah W.</strong><span>Galaxy A15</span><em class="paid">Paid</em><b>KES 8,500</b></div><div><strong>Daniel O.</strong><span>Redmi Note 13</span><em class="due">Due</em><b>KES 12,000</b></div><div><strong>Mary A.</strong><span>iPhone 12</span><em class="new">New</em><b>KES 24,000</b></div></div></div><div class="sl6-window-caption"><span></span><small>Portfolio view &middot; always current</small></div></div><div class="sl6-overview-copy"><p class="sl6-overline"><span></span>THE WHOLE BOOK, CLEARLY</p><h2>See what matters<br><em>at a glance.</em></h2><p>From the first customer detail to the final installment, KISMART keeps the operational picture readable for you and your team.</p><div class="sl6-checks"><div><span>&#10003;</span><strong>Customer records that stay complete</strong></div><div><span>&#10003;</span><strong>Payment status that stays current</strong></div><div><span>&#10003;</span><strong>Device history that stays accountable</strong></div></div><a class="sl6-link sl6-link-green" href="/login">Open the portfolio <span>&#8594;</span></a></div></div></section>
 
-    <section class="sl5-section sl5-solutions"><div class="sl5-shell"><div class="sl5-section-head"><div><p class="sl5-eyebrow">The KISMART toolkit</p><h2>Less chasing.<br><em>More serving.</em></h2></div><p class="sl5-body">Purpose-built tools for the moments that matter in phone retail, from the first application to the final payment.</p></div><div class="sl5-solution-grid"><article class="sl5-solution-card sl5-solution-main"><div class="sl5-card-number">01</div><div class="sl5-card-icon">&#10003;</div><h3>Know every account.</h3><p>See balances, overdue amounts, payment history, and next actions at a glance.</p><a href="/login">Open the portfolio <span>&#8594;</span></a></article><article class="sl5-solution-card sl5-solution-green"><div class="sl5-card-number">02</div><div class="sl5-card-icon">&#8593;</div><h3>Collect on time.</h3><p>Send M-Pesa prompts, record payments, and keep follow-up human and consistent.</p><a href="/login">Open collections <span>&#8594;</span></a></article><article class="sl5-solution-card sl5-solution-image"><img src="/assets/kismart-feature.png" alt="Shop team using KISMART for a customer handover"><div class="sl5-image-card-overlay"><div class="sl5-card-number">03</div><strong>Protect the handover.</strong><a href="/login">See device care <span>&#8594;</span></a></div></article></div></div></section>
+    <section class="sl6-story" id="about"><div class="sl6-shell sl6-story-grid"><div class="sl6-story-copy"><p class="sl6-overline"><span></span>BUILT AROUND THE COUNTER</p><h2>The work behind the sale should never feel <em>scattered.</em></h2><p>KISMART connects the moments that usually live in different notebooks, phones, and spreadsheets. Your team gets a steady rhythm; your customer gets a more confident experience.</p><a class="sl6-link sl6-link-green" href="/intake">Start a customer intake <span>&#8594;</span></a></div><div class="sl6-story-image"><img src="/assets/kismart-feature.png" alt="KISMART shop owner and customer reviewing an installment plan"><div><small>Customer conversation</small><strong>Clear terms.<br>Confident handover.</strong></div></div></div></section>
 
-    <section class="sl5-workflow" id="workflow"><div class="sl5-shell sl5-workflow-grid"><div class="sl5-workflow-intro"><p class="sl5-eyebrow">A calmer daily rhythm</p><h2>From hello<br>to <em>paid.</em></h2><p class="sl5-body">A simple sequence that keeps every person on the same page.</p><a class="sl5-button sl5-button-outline" href="/intake">Start an intake <span>&#8599;</span></a></div><div class="sl5-steps"><article><span>01</span><div><h3>Capture the customer</h3><p>Record the customer and choose a plan in minutes.</p></div><b>&#8594;</b></article><article><span>02</span><div><h3>Print and hand over</h3><p>Generate the agreement and record the financed device.</p></div><b>&#8594;</b></article><article><span>03</span><div><h3>Collect and follow up</h3><p>Know what is paid, what is due, and who needs a nudge.</p></div><b>&#8594;</b></article><article><span>04</span><div><h3>Close the loop</h3><p>Restore paid devices and keep the records ready.</p></div><b>&#8594;</b></article></div></div></section>
+    <section class="sl6-solutions"><div class="sl6-shell"><div class="sl6-section-heading"><div><p class="sl6-overline"><span></span>THE KISMART TOOLKIT</p><h2>Four moving parts.<br><em>One calmer day.</em></h2></div><p>Everything your team needs to keep sales, collections, and device care moving together.</p></div><div class="sl6-feature-grid"><article><span class="sl6-feature-no">01</span><span class="sl6-feature-icon">&#10003;</span><h3>Capture every deal.</h3><p>Customer intake and contract details in one complete record.</p><a href="/intake">Start an intake <span>&#8594;</span></a></article><article><span class="sl6-feature-no">02</span><span class="sl6-feature-icon">&#8593;</span><h3>Collect with confidence.</h3><p>M-Pesa prompts, payment history, and follow-up without guesswork.</p><a href="/login">Open collections <span>&#8594;</span></a></article><article><span class="sl6-feature-no">03</span><span class="sl6-feature-icon">&#9633;</span><h3>Protect every device.</h3><p>Clear agreements, device identity, and control after handover.</p><a href="/login">See device care <span>&#8594;</span></a></article><article><span class="sl6-feature-no">04</span><span class="sl6-feature-icon">&#8594;</span><h3>Finish the loop.</h3><p>When it is paid, restore the device and close the record well.</p><a href="/login">Enter the admin <span>&#8594;</span></a></article></div></div></section>
 
-    <section class="sl5-quote"><div class="sl5-shell sl5-quote-grid"><span class="sl5-quote-mark">&ldquo;</span><div><p>Good operations should feel like a quiet advantage.</p><small>KISMART Global &middot; operating clarity for phone retail</small></div><div class="sl5-quote-line"></div></div></section>
-    <section class="sl5-cta"><div class="sl5-shell"><p class="sl5-eyebrow">Ready when you are</p><h2>Run the shop.<br><em>Not the loose ends.</em></h2><p class="sl5-body">Put contracts, collections, customer intake, and device care on the same page.</p><div class="sl5-cta-actions"><a class="sl5-button sl5-button-green sl5-button-large" href="/login">Enter ${shop} admin <span>&#8599;</span></a><a class="sl5-text-link sl5-text-link-dark" href="/intake">Start a customer intake <span>&#8594;</span></a></div></div></section>
+    <section class="sl6-process" id="workflow"><div class="sl6-shell sl6-process-grid"><div><p class="sl6-overline"><span></span>THE DAILY RHYTHM</p><h2>From first detail<br>to <em>final payment.</em></h2><p>A shared sequence for every person behind the counter.</p><a class="sl6-btn sl6-btn-green" href="/intake">Start with intake <span>&#8599;</span></a></div><div class="sl6-process-list"><article><span>01</span><div><h3>Capture</h3><p>Start with the customer, device, and plan.</p></div><b>&#8594;</b></article><article><span>02</span><div><h3>Handover</h3><p>Print the agreement and record the device.</p></div><b>&#8594;</b></article><article><span>03</span><div><h3>Collect</h3><p>Know what is paid, due, or overdue.</p></div><b>&#8594;</b></article><article><span>04</span><div><h3>Complete</h3><p>Restore paid devices and close the loop.</p></div><b>&#8594;</b></article></div></div></section>
+
+    <section class="sl6-cta"><div class="sl6-shell"><p class="sl6-overline"><span></span>READY WHEN YOU ARE</p><h2>Make the next step<br><em>obvious.</em></h2><p>Run contracts, collections, customer intake, and device care from one dependable place.</p><div><a class="sl6-btn sl6-btn-green sl6-btn-large" href="/login">Enter ${shop} admin <span>&#8599;</span></a><a class="sl6-link" href="/intake">Start a customer intake <span>&#8594;</span></a></div></div></section>
   </main>
-
-  <footer class="sl5-footer"><div class="sl5-shell sl5-footer-inner"><a class="sl5-brand" href="/"><span class="sl5-brand-mark"><img src="/assets/logo.jpeg" alt="" width="144" height="144"></span><span>KISMART</span></a><p>${shop} &middot; Imports. Products. Possibilities.</p><div><a href="/intake">Customer intake</a><a href="/login">Admin</a><span>v${VERSION}</span></div></div></footer>
+  <footer class="sl6-footer"><div class="sl6-shell sl6-footer-grid"><a class="sl6-brand" href="/"><span class="sl6-brand-mark"><img src="/assets/logo.jpeg" alt="" width="144" height="144"></span><span>KISMART</span></a><p>${shop} &middot; Imports. Products. Possibilities.</p><div><a href="/intake">Customer intake</a><a href="/login">Admin</a><span>v${VERSION}</span></div></div></footer>
 </body>
 </html>`;
 }
@@ -4529,6 +4504,45 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .sl5-visual-wash { position: absolute; inset: 7% 0 0 7%; border-radius: 46% 46% 18px 18px; background: rgba(217,242,221,.9); }
 .sl5-hero-photo-frame { position: absolute; inset: 4% 0 4% 5%; overflow: hidden; border: 9px solid #fff; border-radius: 20px; box-shadow: 0 21px 50px rgba(49,110,69,.14); transform: rotate(2.2deg); }
 .sl5-hero-photo-frame img { width: 100%; height: 100%; display: block; object-fit: cover; object-position: 59% center; }
+.sl5-product-phone { position: absolute; right: 7%; bottom: 5%; z-index: 4; width: 188px; height: 382px; padding: 8px; border: 1px solid rgba(24,60,40,.28); border-radius: 29px; background: #153b27; box-shadow: 0 20px 32px rgba(24,60,40,.22), 0 4px 0 rgba(24,60,40,.1); transform: rotate(6deg); }
+.sl5-product-phone::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(255,255,255,.18); border-radius: 25px; pointer-events: none; }
+.sl5-product-phone-speaker { position: absolute; top: 8px; left: 50%; z-index: 3; width: 58px; height: 14px; transform: translateX(-50%); border-radius: 0 0 12px 12px; background: #153b27; }
+.sl5-product-phone-speaker::after { content: ""; position: absolute; top: 5px; left: 50%; width: 24px; height: 3px; transform: translateX(-50%); border-radius: 9px; background: #476a54; }
+.sl5-product-phone-screen { position: relative; height: 100%; overflow: hidden; padding: 16px 11px 9px; border-radius: 22px; color: var(--sl5-ink); background: #f9fffa; }
+.sl5-device-status { display: flex; justify-content: space-between; padding: 0 4px; color: rgba(24,60,40,.52); font-size: 7px; font-weight: 600; }
+.sl5-device-header { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.sl5-device-logo { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 6px; color: #fff; background: var(--sl5-green); font-size: 8px; font-weight: 700; }
+.sl5-device-header strong { font-size: 10px; font-weight: 600; letter-spacing: -.02em; }
+.sl5-device-avatar { display: grid; place-items: center; width: 20px; height: 20px; margin-left: auto; border-radius: 50%; color: var(--sl5-green); background: var(--sl5-mint-deep); font-size: 6px; font-weight: 700; }
+.sl5-device-greeting { margin-top: 18px; }
+.sl5-device-greeting small { color: rgba(24,60,40,.48); font-size: 6px; letter-spacing: .08em; }
+.sl5-device-greeting h3 { margin: 4px 0 0; color: var(--sl5-ink); font-size: 18px; line-height: 1; font-weight: 500; letter-spacing: -.06em; }
+.sl5-device-summary { position: relative; margin-top: 15px; padding: 11px 10px 10px; overflow: hidden; border-radius: 10px; color: #fff; background: var(--sl5-green); }
+.sl5-device-summary::after { content: ""; position: absolute; right: -25px; bottom: -29px; width: 90px; height: 90px; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; }
+.sl5-device-summary small { color: rgba(255,255,255,.68); font-size: 6px; letter-spacing: .08em; }
+.sl5-device-summary strong { display: block; margin-top: 6px; font-size: 17px; font-weight: 500; letter-spacing: -.06em; }
+.sl5-device-summary span { display: block; margin-top: 4px; color: rgba(255,255,255,.82); font-size: 6px; }
+.sl5-device-progress { position: relative; z-index: 1; height: 3px; margin-top: 10px; border-radius: 99px; background: rgba(255,255,255,.28); }
+.sl5-device-progress i { display: block; width: 72%; height: 100%; border-radius: inherit; background: #c9f7d1; }
+.sl5-device-section { display: flex; justify-content: space-between; align-items: center; margin: 15px 1px 7px; }
+.sl5-device-section strong { font-size: 10px; font-weight: 600; }
+.sl5-device-section small { color: var(--sl5-green); font-size: 7px; }
+.sl5-device-list { display: grid; gap: 5px; }
+.sl5-device-list > div { display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; align-items: center; min-height: 39px; padding: 6px; border: 1px solid rgba(24,60,40,.1); border-radius: 7px; background: #fff; }
+.sl5-device-list > div > span:first-child { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 6px; color: #fff; font-size: 9px; font-weight: 700; }
+.sl5-device-list > div > span:first-child.paid { background: var(--sl5-green); }
+.sl5-device-list > div > span:first-child.due { color: var(--sl5-green); background: #e8f8e9; }
+.sl5-device-list > div > span:first-child.new { color: #fff; background: #84c98c; }
+.sl5-device-list > div > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
+.sl5-device-list b { overflow: hidden; font-size: 7px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.sl5-device-list small { overflow: hidden; color: rgba(24,60,40,.5); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.sl5-device-list > div > strong { color: var(--sl5-green); font-size: 6px; font-weight: 600; white-space: nowrap; }
+.sl5-device-nav { position: absolute; right: 10px; bottom: 8px; left: 10px; display: flex; justify-content: space-around; padding-top: 7px; border-top: 1px solid rgba(24,60,40,.1); }
+.sl5-device-nav span { display: grid; justify-items: center; gap: 2px; color: rgba(24,60,40,.38); font-size: 6px; }
+.sl5-device-nav span.active { color: var(--sl5-green); }
+.sl5-device-nav b { font-size: 11px; font-weight: 500; line-height: 1; }
+.sl5-device-nav span.active b { font-weight: 700; }
+
 .sl5-float-card { position: absolute; z-index: 3; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(24,60,40,.09); border-radius: 12px; background: #fff; box-shadow: 0 15px 30px rgba(38,88,50,.13); }
 .sl5-float-card-top { top: 12%; left: -3%; padding: 11px 15px 11px 11px; }
 .sl5-float-card-bottom { right: -1%; bottom: 11%; display: grid; gap: 3px; padding: 14px 17px; }
@@ -4610,9 +4624,81 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 .sl5-footer p { margin: 0; color: rgba(255,255,255,.78); font-size: 11px; }
 .sl5-footer-inner > div { display: flex; gap: 19px; align-items: center; }
 .sl5-footer-inner > div a, .sl5-footer-inner > div span { color: rgba(255,255,255,.83); font-size: 11px; }
-@media (max-width: 1000px) { .sl5-hero-grid { grid-template-columns: .9fr 1.1fr; gap: 12px; }.sl5-hero-visual { min-height: 470px; }.sl5-float-card-top { left: -1%; }.sl5-float-card-bottom { right: 1%; }.sl5-intro-grid { gap: 46px; }.sl5-workflow-grid { gap: 50px; } }
-@media (max-width: 800px) { .sl5-shell { width: min(100% - 40px, 560px); }.sl5-topline .sl5-shell { gap: 12px; }.sl5-topline .sl5-shell span:last-child { display: none; }.sl5-nav-inner { grid-template-columns: auto auto; justify-content: space-between; min-height: 72px; }.sl5-nav-links, .sl5-nav-link { display: none; }.sl5-nav-actions { gap: 0; }.sl5-nav-actions .sl5-button { min-height: 40px; padding: 10px 14px; font-size: 12px; }.sl5-hero-grid { grid-template-columns: 1fr; gap: 28px; padding-top: 44px; padding-bottom: 46px; }.sl5-hero-copy { max-width: 580px; }.sl5-hero h1 { font-size: 58px; }.sl5-hero-proof { margin-top: 38px; }.sl5-hero-visual { min-height: 450px; margin: 0 -7px; }.sl5-hero-photo-frame { inset: 2% 4% 2% 5%; }.sl5-float-card-top { left: 1%; }.sl5-float-card-bottom { right: 2%; bottom: 5%; }.sl5-trust-inner { display: grid; gap: 14px; padding: 22px 0; }.sl5-trust-items { flex-wrap: wrap; gap: 11px 14px; }.sl5-intro-grid { grid-template-columns: 1fr; gap: 36px; }.sl5-section { padding: 78px 0; }.sl5-intro-art { min-height: 330px; }.sl5-intro-art > img { min-height: 330px; }.sl5-section-head { grid-template-columns: 1fr; gap: 22px; margin-bottom: 33px; }.sl5-solution-grid { grid-template-columns: 1fr; }.sl5-solution-card { min-height: 300px; }.sl5-solution-image > img { min-height: 300px; }.sl5-workflow { padding: 80px 0; }.sl5-workflow-grid { grid-template-columns: 1fr; gap: 45px; }.sl5-quote-grid { grid-template-columns: 45px 1fr; gap: 15px; min-height: 250px; }.sl5-quote-line { display: none; }.sl5-quote-mark { font-size: 75px; }.sl5-cta { padding: 82px 0 90px; }.sl5-cta-actions { flex-direction: column; gap: 19px; }.sl5-footer-inner { grid-template-columns: 1fr; gap: 13px; padding: 25px 0; }.sl5-footer-inner > div { flex-wrap: wrap; } }
-@media (max-width: 520px) { .sl5-shell { width: min(100% - 32px, 440px); }.sl5-hero h1 { font-size: 47px; }.sl5-hero-text { font-size: 15px; }.sl5-hero-visual { min-height: 354px; }.sl5-float-card-top { top: 5%; transform: scale(.9); transform-origin: left top; }.sl5-float-card-bottom { bottom: 0; transform: scale(.9); transform-origin: right bottom; }.sl5-hero-sticker { right: 3%; }.sl5-art-caption { right: 12px; bottom: 12px; left: 12px; }.sl5-art-caption strong { font-size: 15px; }.sl5-intro h2, .sl5-section-head h2, .sl5-workflow h2, .sl5-cta h2 { font-size: 43px; } }
+@media (max-width: 1000px) { .sl5-product-phone { right: 4%; bottom: 4%; transform: rotate(5deg) scale(.92); } .sl5-hero-grid { grid-template-columns: .9fr 1.1fr; gap: 12px; }.sl5-hero-visual { min-height: 470px; }.sl5-float-card-top { left: -1%; }.sl5-float-card-bottom { right: 1%; }.sl5-intro-grid { gap: 46px; }.sl5-workflow-grid { gap: 50px; } }
+@media (max-width: 800px) { .sl5-product-phone { right: 4%; bottom: 2%; transform: rotate(4deg) scale(.86); transform-origin: right bottom; } .sl5-shell { width: min(100% - 40px, 560px); }.sl5-topline .sl5-shell { gap: 12px; }.sl5-topline .sl5-shell span:last-child { display: none; }.sl5-nav-inner { grid-template-columns: auto auto; justify-content: space-between; min-height: 72px; }.sl5-nav-links, .sl5-nav-link { display: none; }.sl5-nav-actions { gap: 0; }.sl5-nav-actions .sl5-button { min-height: 40px; padding: 10px 14px; font-size: 12px; }.sl5-hero-grid { grid-template-columns: 1fr; gap: 28px; padding-top: 44px; padding-bottom: 46px; }.sl5-hero-copy { max-width: 580px; }.sl5-hero h1 { font-size: 58px; }.sl5-hero-proof { margin-top: 38px; }.sl5-hero-visual { min-height: 450px; margin: 0 -7px; }.sl5-hero-photo-frame { inset: 2% 4% 2% 5%; }.sl5-float-card-top { left: 1%; }.sl5-float-card-bottom { right: 2%; bottom: 5%; }.sl5-trust-inner { display: grid; gap: 14px; padding: 22px 0; }.sl5-trust-items { flex-wrap: wrap; gap: 11px 14px; }.sl5-intro-grid { grid-template-columns: 1fr; gap: 36px; }.sl5-section { padding: 78px 0; }.sl5-intro-art { min-height: 330px; }.sl5-intro-art > img { min-height: 330px; }.sl5-section-head { grid-template-columns: 1fr; gap: 22px; margin-bottom: 33px; }.sl5-solution-grid { grid-template-columns: 1fr; }.sl5-solution-card { min-height: 300px; }.sl5-solution-image > img { min-height: 300px; }.sl5-workflow { padding: 80px 0; }.sl5-workflow-grid { grid-template-columns: 1fr; gap: 45px; }.sl5-quote-grid { grid-template-columns: 45px 1fr; gap: 15px; min-height: 250px; }.sl5-quote-line { display: none; }.sl5-quote-mark { font-size: 75px; }.sl5-cta { padding: 82px 0 90px; }.sl5-cta-actions { flex-direction: column; gap: 19px; }.sl5-footer-inner { grid-template-columns: 1fr; gap: 13px; padding: 25px 0; }.sl5-footer-inner > div { flex-wrap: wrap; } }
+@media (max-width: 520px) { .sl5-product-phone { right: 3%; bottom: 0; transform: rotate(3deg) scale(.72); transform-origin: right bottom; } .sl5-shell { width: min(100% - 32px, 440px); }.sl5-hero h1 { font-size: 47px; }.sl5-hero-text { font-size: 15px; }.sl5-hero-visual { min-height: 354px; }.sl5-float-card-top { top: 5%; transform: scale(.9); transform-origin: left top; }.sl5-float-card-bottom { bottom: 0; transform: scale(.9); transform-origin: right bottom; }.sl5-hero-sticker { right: 3%; }.sl5-art-caption { right: 12px; bottom: 12px; left: 12px; }.sl5-art-caption strong { font-size: 15px; }.sl5-intro h2, .sl5-section-head h2, .sl5-workflow h2, .sl5-cta h2 { font-size: 43px; } }
+
+
+/* KISMART professional landing system: editorial structure, product clarity, and generous whitespace. */
+.sl6-land { --sl6-ink: #173c27; --sl6-ink-2: #365a44; --sl6-green: #23844d; --sl6-green-bright: #66d981; --sl6-mint: #effaf0; --sl6-mint-2: #dff4e2; --sl6-line: rgba(23,60,39,.14); color: var(--sl6-ink); background: #fff; font-family: "Outfit", Inter, "Segoe UI", Arial, sans-serif; }
+.sl6-land *, .sl6-land *::before, .sl6-land *::after { box-sizing: border-box; }
+.sl6-land a { color: inherit; text-decoration: none; }
+.sl6-shell { width: min(1180px, calc(100% - 64px)); margin: 0 auto; }
+.sl6-nav { position: relative; z-index: 5; border-bottom: 1px solid var(--sl6-line); background: #fff; }
+.sl6-nav-inner { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 36px; min-height: 84px; }
+.sl6-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; letter-spacing: -.06em; }
+.sl6-brand-mark { position: relative; display: block; width: 31px; height: 31px; overflow: hidden; flex: 0 0 31px; border-radius: 8px; background: #fff; }
+.sl6-brand-mark img { position: absolute; top: -35px; left: -50px; width: 144px; height: 144px; max-width: none; object-fit: contain; }
+.sl6-links { display: flex; justify-content: center; gap: 34px; }
+.sl6-links a, .sl6-actions > a:first-child { color: rgba(23,60,39,.65); font-size: 13px; font-weight: 500; }
+.sl6-links a:hover, .sl6-actions > a:first-child:hover { color: var(--sl6-green); }
+.sl6-actions { display: flex; align-items: center; gap: 23px; }
+.sl6-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 45px; padding: 12px 18px; border: 1px solid transparent; border-radius: 8px; color: #fff; background: var(--sl6-green); font-size: 13px; font-weight: 600; box-shadow: 0 8px 18px rgba(35,132,77,.14); transition: transform .18s ease, background .18s ease; }
+.sl6-btn:hover { color: #fff; background: #1c6e40; transform: translateY(-2px); }
+.sl6-btn-large { min-height: 53px; padding: 15px 22px; }
+.sl6-overline { display: flex; align-items: center; gap: 9px; margin: 0 0 20px; color: var(--sl6-green); font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.sl6-overline > span { width: 8px; height: 8px; border-radius: 50%; background: var(--sl6-green-bright); box-shadow: 0 0 0 4px rgba(102,217,129,.16); }
+.sl6-hero { overflow: hidden; background: var(--sl6-mint); }
+.sl6-hero-grid { display: grid; grid-template-columns: .86fr 1.14fr; gap: 40px; align-items: center; min-height: 710px; padding-top: 55px; padding-bottom: 55px; }
+.sl6-hero-copy { position: relative; z-index: 2; max-width: 530px; }
+.sl6-hero h1 { max-width: 570px; margin: 0; font-size: clamp(54px, 6.1vw, 82px); line-height: .96; font-weight: 600; letter-spacing: -.085em; }
+.sl6-hero h1 em, .sl6-overview h2 em, .sl6-story h2 em, .sl6-section-heading h2 em, .sl6-process h2 em, .sl6-cta h2 em { color: var(--sl6-green); font-style: normal; }
+.sl6-lead { max-width: 455px; margin: 28px 0 0; color: rgba(23,60,39,.7); font-size: 16px; line-height: 1.65; }
+.sl6-hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; margin-top: 33px; }
+.sl6-link { display: inline-flex; align-items: center; gap: 10px; color: var(--sl6-ink); font-size: 13px; font-weight: 600; }
+.sl6-link:hover { color: var(--sl6-green); }
+.sl6-link span { font-size: 18px; line-height: 0; }
+.sl6-link-green { color: var(--sl6-green); }
+.sl6-hero-signoff { display: flex; align-items: center; gap: 11px; margin-top: 58px; }
+.sl6-signoff-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: #fff; background: var(--sl6-green); font-size: 12px; font-weight: 600; }
+.sl6-hero-signoff span + span { display: grid; gap: 2px; }
+.sl6-hero-signoff strong { font-size: 11px; font-weight: 600; }
+.sl6-hero-signoff small { color: rgba(23,60,39,.56); font-size: 10px; }
+.sl6-hero-art { position: relative; min-height: 570px; }
+.sl6-art-backdrop { position: absolute; inset: 6% 0 0 5%; border-radius: 48% 48% 20px 20px; background: var(--sl6-mint-2); }
+.sl6-art-frame { position: absolute; inset: 5% 0 4% 3%; overflow: hidden; border: 9px solid #fff; border-radius: 22px; box-shadow: 0 24px 60px rgba(39,96,54,.15); transform: rotate(1.8deg); }
+.sl6-art-frame img { width: 100%; height: 100%; display: block; object-fit: cover; object-position: 60% center; }
+.sl6-art-tag { position: absolute; top: 2%; right: 5%; z-index: 3; display: flex; gap: 8px; color: var(--sl6-ink); }
+.sl6-art-tag span { color: var(--sl6-green); font-size: 11px; font-weight: 600; }
+.sl6-art-tag strong { font-size: 11px; line-height: 1.1; font-weight: 500; }
+.sl6-art-stat { position: absolute; right: -1%; bottom: 10%; z-index: 4; display: grid; gap: 3px; padding: 15px 17px; border: 1px solid rgba(23,60,39,.1); border-radius: 11px; background: #fff; box-shadow: 0 15px 30px rgba(39,96,54,.14); }
+.sl6-art-stat small { color: rgba(23,60,39,.55); font-size: 8px; letter-spacing: .09em; }
+.sl6-art-stat strong { font-size: 20px; font-weight: 600; letter-spacing: -.05em; }
+.sl6-art-stat span { color: var(--sl6-green); font-size: 9px; }
+.sl6-product-phone { position: absolute; right: 10%; bottom: 4%; z-index: 5; width: 190px; height: 390px; padding: 8px; border: 1px solid rgba(23,60,39,.32); border-radius: 29px; background: #153b27; box-shadow: 0 22px 34px rgba(23,60,39,.24), 0 4px 0 rgba(23,60,39,.1); transform: rotate(6deg); }
+.sl6-product-phone::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(255,255,255,.18); border-radius: 25px; pointer-events: none; }
+.sl6-phone-notch { position: absolute; top: 8px; left: 50%; z-index: 3; width: 58px; height: 14px; transform: translateX(-50%); border-radius: 0 0 12px 12px; background: #153b27; }
+.sl6-phone-notch::after { content: ""; position: absolute; top: 5px; left: 50%; width: 24px; height: 3px; transform: translateX(-50%); border-radius: 9px; background: #476a54; }
+.sl6-phone-screen { position: relative; height: 100%; overflow: hidden; padding: 16px 11px 9px; border-radius: 22px; color: var(--sl6-ink); background: #f9fffa; }
+.sl6-phone-status { display: flex; justify-content: space-between; padding: 0 4px; color: rgba(23,60,39,.52); font-size: 7px; font-weight: 600; }
+.sl6-phone-head { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.sl6-phone-logo { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 6px; color: #fff; background: var(--sl6-green); font-size: 8px; font-weight: 700; }
+.sl6-phone-head strong { font-size: 10px; font-weight: 600; }.sl6-phone-admin { display: inline-flex; align-items: center; justify-content: center; min-height: 18px; margin-left: auto; padding: 0 6px; border: 1px solid rgba(35,132,77,.24); border-radius: 999px; color: var(--sl6-green); background: var(--sl6-mint); font-size: 6px; font-weight: 600; white-space: nowrap; }
+.sl6-phone-avatar { display: grid; place-items: center; width: 20px; height: 20px; margin-left: auto; border-radius: 50%; color: var(--sl6-green); background: var(--sl6-mint-2); font-size: 6px; font-weight: 700; }
+.sl6-phone-welcome { margin-top: 18px; }.sl6-phone-welcome small { color: rgba(23,60,39,.48); font-size: 6px; letter-spacing: .08em; }.sl6-phone-welcome h3 { margin: 4px 0 0; font-size: 18px; line-height: 1; font-weight: 500; letter-spacing: -.06em; }
+.sl6-phone-total { position: relative; margin-top: 15px; padding: 11px 10px 10px; overflow: hidden; border-radius: 10px; color: #fff; background: var(--sl6-green); }.sl6-phone-total::after { content: ""; position: absolute; right: -25px; bottom: -29px; width: 90px; height: 90px; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; }.sl6-phone-total small { color: rgba(255,255,255,.68); font-size: 6px; letter-spacing: .08em; }.sl6-phone-total strong { display: block; margin-top: 6px; font-size: 17px; font-weight: 500; letter-spacing: -.06em; }.sl6-phone-total span { display: block; margin-top: 4px; color: rgba(255,255,255,.82); font-size: 6px; }.sl6-phone-total i { position: relative; z-index: 1; display: block; height: 3px; margin-top: 10px; border-radius: 99px; background: rgba(255,255,255,.27); }.sl6-phone-total i b { display: block; width: 72%; height: 100%; border-radius: inherit; background: #c9f7d1; }
+.sl6-phone-due { display: flex; justify-content: space-between; margin: 15px 1px 7px; }.sl6-phone-due strong { font-size: 10px; font-weight: 600; }.sl6-phone-due small { color: var(--sl6-green); font-size: 7px; }
+.sl6-phone-list { display: grid; gap: 5px; }.sl6-phone-list > div { display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; align-items: center; min-height: 39px; padding: 6px; border: 1px solid rgba(23,60,39,.1); border-radius: 7px; background: #fff; }.sl6-phone-list > div > span:first-child { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 6px; color: #fff; font-size: 9px; font-weight: 700; }.sl6-phone-list .ok { background: var(--sl6-green); }.sl6-phone-list .warn { color: var(--sl6-green); background: #e8f8e9; }.sl6-phone-list .add { background: #84c98c; }.sl6-phone-list > div > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }.sl6-phone-list b { overflow: hidden; font-size: 7px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.sl6-phone-list small { overflow: hidden; color: rgba(23,60,39,.5); font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }.sl6-phone-list > div > strong { color: var(--sl6-green); font-size: 6px; font-weight: 600; white-space: nowrap; }.sl6-phone-nav { position: absolute; right: 10px; bottom: 8px; left: 10px; display: flex; justify-content: space-around; padding-top: 7px; border-top: 1px solid rgba(23,60,39,.1); }.sl6-phone-nav span { display: grid; justify-items: center; gap: 2px; color: rgba(23,60,39,.38); font-size: 6px; }.sl6-phone-nav span.active { color: var(--sl6-green); }.sl6-phone-nav small { font-size: 6px; }.sl6-phone-nav span { font-size: 11px; }.sl6-phone-nav small { font-size: 6px; }
+.sl6-rail { border-bottom: 1px solid var(--sl6-line); background: #fff; }.sl6-rail-grid { display: grid; grid-template-columns: repeat(3, 1fr); }.sl6-rail-grid > div { display: grid; grid-template-columns: 30px 1fr; column-gap: 10px; align-items: center; min-height: 98px; padding: 20px 25px 20px 0; border-right: 1px solid var(--sl6-line); }.sl6-rail-grid > div + div { padding-left: 25px; }.sl6-rail-grid > div:last-child { border-right: 0; }.sl6-rail-grid span { grid-row: span 2; color: var(--sl6-green); font-size: 11px; font-weight: 600; }.sl6-rail-grid strong { font-size: 13px; font-weight: 600; }.sl6-rail-grid small { color: rgba(23,60,39,.55); font-size: 10px; }
+.sl6-overview { padding: 125px 0; background: #fff; }.sl6-overview-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 92px; align-items: center; }.sl6-window-wrap { position: relative; }.sl6-window { overflow: hidden; border: 1px solid rgba(23,60,39,.14); border-radius: 14px; background: #fff; box-shadow: 0 22px 60px rgba(39,96,54,.1); }.sl6-window-bar { display: flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 16px; border-bottom: 1px solid var(--sl6-line); }.sl6-window-bar > span { width: 8px; height: 8px; border-radius: 50%; background: #c8e9ce; }.sl6-window-bar strong { margin-left: 10px; color: rgba(23,60,39,.6); font-size: 10px; font-weight: 500; }.sl6-window-bar i { margin-left: auto; padding: 5px 8px; border-radius: 999px; color: var(--sl6-green); background: var(--sl6-mint); font-size: 8px; font-style: normal; }.sl6-window-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 15px; }.sl6-window-stats > div { min-height: 94px; padding: 12px; border-radius: 9px; background: var(--sl6-mint); }.sl6-window-stats > div:nth-child(2) { color: #fff; background: var(--sl6-green); }.sl6-window-stats > div:nth-child(3) { background: #f7fbf6; }.sl6-window-stats small { display: block; color: rgba(23,60,39,.54); font-size: 7px; letter-spacing: .07em; }.sl6-window-stats > div:nth-child(2) small { color: rgba(255,255,255,.68); }.sl6-window-stats strong { display: block; margin-top: 11px; font-size: 18px; font-weight: 600; letter-spacing: -.05em; }.sl6-window-stats b { display: block; margin-top: 6px; color: var(--sl6-green); font-size: 8px; font-weight: 500; }.sl6-window-stats > div:nth-child(2) b { color: rgba(255,255,255,.8); }.sl6-window-table { margin: 0 15px 15px; overflow: hidden; border: 1px solid var(--sl6-line); border-radius: 9px; }.sl6-window-table > div { display: grid; grid-template-columns: 1fr 1fr 58px 75px; gap: 10px; align-items: center; min-height: 42px; padding: 0 12px; border-top: 1px solid rgba(23,60,39,.1); font-size: 9px; }.sl6-window-table > div:first-child { border-top: 0; }.sl6-window-table .table-head { min-height: 31px; color: rgba(23,60,39,.5); background: #fbfdfb; font-size: 7px; text-transform: uppercase; }.sl6-window-table span { color: rgba(23,60,39,.56); }.sl6-window-table strong { font-size: 9px; font-weight: 600; }.sl6-window-table em { padding: 4px 5px; border-radius: 999px; color: var(--sl6-green); background: var(--sl6-mint); font-size: 7px; font-style: normal; text-align: center; }.sl6-window-table em.due { color: #a26b20; background: #fff6e8; }.sl6-window-table em.new { color: #4e75a1; background: #eef6ff; }.sl6-window-table b { color: var(--sl6-ink); font-size: 8px; font-weight: 600; text-align: right; }.sl6-window-caption { display: flex; align-items: center; gap: 8px; margin-top: 15px; color: rgba(23,60,39,.55); font-size: 10px; }.sl6-window-caption span { width: 7px; height: 7px; border-radius: 50%; background: var(--sl6-green-bright); }
+.sl6-overview-copy { max-width: 425px; }.sl6-overview h2, .sl6-story h2, .sl6-section-heading h2, .sl6-process h2, .sl6-cta h2 { margin: 0; font-size: clamp(40px, 4.6vw, 62px); line-height: .99; font-weight: 600; letter-spacing: -.075em; }.sl6-overview-copy > p:not(.sl6-overline) { margin: 24px 0 0; color: rgba(23,60,39,.64); font-size: 15px; line-height: 1.65; }.sl6-checks { display: grid; gap: 14px; margin-top: 29px; }.sl6-checks div { display: flex; align-items: center; gap: 10px; }.sl6-checks span { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; background: var(--sl6-green); font-size: 10px; }.sl6-checks strong { font-size: 12px; font-weight: 500; }.sl6-overview-copy .sl6-link { margin-top: 31px; }
+.sl6-story { padding: 112px 0 120px; background: var(--sl6-mint); }.sl6-story-grid { display: grid; grid-template-columns: .84fr 1.16fr; gap: 85px; align-items: center; }.sl6-story-copy { max-width: 420px; }.sl6-story-copy > p:not(.sl6-overline) { margin: 24px 0 0; color: rgba(23,60,39,.66); font-size: 15px; line-height: 1.65; }.sl6-story-copy .sl6-link { margin-top: 28px; }.sl6-story-image { position: relative; min-height: 400px; overflow: hidden; border-radius: 16px; background: var(--sl6-mint-2); }.sl6-story-image img { width: 100%; height: 100%; min-height: 400px; display: block; object-fit: cover; object-position: 58% center; }.sl6-story-image > div { position: absolute; right: 16px; bottom: 16px; left: 16px; display: grid; gap: 8px; padding: 15px 17px; border: 1px solid rgba(255,255,255,.38); border-radius: 10px; color: #fff; background: rgba(23,60,39,.76); backdrop-filter: blur(8px); }.sl6-story-image small { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }.sl6-story-image strong { font-size: 21px; line-height: .98; font-weight: 500; letter-spacing: -.05em; }
+.sl6-solutions { padding: 122px 0; background: #fff; }.sl6-section-heading { display: grid; grid-template-columns: 1fr .67fr; gap: 60px; align-items: end; margin-bottom: 51px; }.sl6-section-heading > p { max-width: 320px; margin: 0 0 4px; color: rgba(23,60,39,.64); font-size: 15px; line-height: 1.6; }.sl6-feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--sl6-line); border-left: 1px solid var(--sl6-line); }.sl6-feature-grid article { position: relative; display: flex; flex-direction: column; min-height: 305px; padding: 22px; border-right: 1px solid var(--sl6-line); border-bottom: 1px solid var(--sl6-line); }.sl6-feature-grid article:nth-child(2) { background: var(--sl6-mint); }.sl6-feature-grid article:nth-child(3) { color: #fff; background: var(--sl6-green); }.sl6-feature-grid article:nth-child(4) { background: #f8fbf7; }.sl6-feature-no { color: rgba(23,60,39,.5); font-size: 10px; font-weight: 600; }.sl6-feature-grid article:nth-child(3) .sl6-feature-no { color: rgba(255,255,255,.7); }.sl6-feature-icon { display: grid; place-items: center; width: 38px; height: 38px; margin-top: 50px; border-radius: 11px; color: #fff; background: var(--sl6-green); font-size: 15px; }.sl6-feature-grid article:nth-child(3) .sl6-feature-icon { color: var(--sl6-green); background: #fff; }.sl6-feature-grid h3 { margin: 17px 0 9px; font-size: 21px; font-weight: 500; letter-spacing: -.05em; }.sl6-feature-grid p { margin: 0; color: rgba(23,60,39,.63); font-size: 13px; line-height: 1.55; }.sl6-feature-grid article:nth-child(3) p { color: rgba(255,255,255,.78); }.sl6-feature-grid a { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(23,60,39,.15); color: var(--sl6-green); font-size: 11px; font-weight: 600; }.sl6-feature-grid article:nth-child(3) a { color: #fff; border-color: rgba(255,255,255,.25); }
+.sl6-process { padding: 116px 0 122px; background: var(--sl6-ink); color: #fff; }.sl6-process-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 105px; }.sl6-process .sl6-overline { color: var(--sl6-green-bright); }.sl6-process h2 em { color: var(--sl6-green-bright); }.sl6-process > .sl6-shell > div:first-child > p:not(.sl6-overline) { max-width: 300px; margin: 23px 0 0; color: rgba(255,255,255,.62); font-size: 15px; line-height: 1.6; }.sl6-process .sl6-btn { margin-top: 29px; }.sl6-process-list { display: grid; }.sl6-process-list article { display: grid; grid-template-columns: 43px 1fr 25px; gap: 17px; align-items: start; padding: 21px 0; border-top: 1px solid rgba(255,255,255,.19); }.sl6-process-list article:last-child { border-bottom: 1px solid rgba(255,255,255,.19); }.sl6-process-list article > span { color: var(--sl6-green-bright); font-size: 11px; font-weight: 600; }.sl6-process-list h3 { margin: 0; font-size: 19px; font-weight: 500; letter-spacing: -.03em; }.sl6-process-list p { margin: 7px 0 0; color: rgba(255,255,255,.54); font-size: 13px; }.sl6-process-list b { color: rgba(255,255,255,.5); font-size: 16px; font-weight: 400; }
+.sl6-cta { padding: 120px 0 127px; text-align: center; background: #fff; }.sl6-cta .sl6-overline { justify-content: center; }.sl6-cta > .sl6-shell > p:not(.sl6-overline) { max-width: 400px; margin: 24px auto 0; color: rgba(23,60,39,.64); font-size: 15px; line-height: 1.6; }.sl6-cta > .sl6-shell > div { display: flex; justify-content: center; align-items: center; gap: 25px; margin-top: 31px; }.sl6-footer { color: #fff; background: var(--sl6-green); }.sl6-footer-grid { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 30px; min-height: 94px; }.sl6-footer .sl6-brand { color: #fff; }.sl6-footer p { margin: 0; color: rgba(255,255,255,.77); font-size: 11px; }.sl6-footer-grid > div { display: flex; align-items: center; gap: 19px; }.sl6-footer-grid > div a, .sl6-footer-grid > div span { color: rgba(255,255,255,.84); font-size: 11px; }
+@media (max-width: 1000px) { .sl6-hero-grid { grid-template-columns: .88fr 1.12fr; gap: 18px; }.sl6-overview-grid { gap: 44px; }.sl6-process-grid { gap: 50px; }.sl6-product-phone { right: 5%; transform: rotate(5deg) scale(.91); } }
+@media (max-width: 800px) { .sl6-shell { width: min(100% - 40px, 560px); }.sl6-nav-inner { grid-template-columns: auto auto; justify-content: space-between; min-height: 72px; }.sl6-links, .sl6-actions > a:first-child { display: none; }.sl6-actions { gap: 0; }.sl6-actions .sl6-btn { min-height: 40px; padding: 10px 14px; font-size: 12px; }.sl6-hero-grid { grid-template-columns: 1fr; gap: 31px; padding-top: 45px; padding-bottom: 48px; }.sl6-hero-copy { max-width: 600px; }.sl6-hero h1 { font-size: 58px; }.sl6-hero-signoff { margin-top: 39px; }.sl6-hero-art { min-height: 465px; }.sl6-product-phone { right: 4%; bottom: 2%; transform: rotate(4deg) scale(.82); transform-origin: right bottom; }.sl6-art-stat { right: 2%; bottom: 5%; }.sl6-art-tag { right: 7%; }.sl6-rail-grid { grid-template-columns: 1fr; }.sl6-rail-grid > div, .sl6-rail-grid > div + div { min-height: 76px; padding: 15px 0; border-right: 0; border-bottom: 1px solid var(--sl6-line); }.sl6-rail-grid > div:last-child { border-bottom: 0; }.sl6-overview, .sl6-solutions { padding: 80px 0; }.sl6-overview-grid, .sl6-story-grid, .sl6-process-grid { grid-template-columns: 1fr; gap: 42px; }.sl6-window { max-width: 620px; }.sl6-story { padding: 80px 0; }.sl6-section-heading { grid-template-columns: 1fr; gap: 20px; margin-bottom: 34px; }.sl6-feature-grid { grid-template-columns: 1fr 1fr; }.sl6-process { padding: 80px 0; }.sl6-cta { padding: 82px 0 90px; }.sl6-cta > .sl6-shell > div { flex-direction: column; gap: 19px; }.sl6-footer-grid { grid-template-columns: 1fr; gap: 13px; padding: 25px 0; } }
+@media (max-width: 520px) { .sl6-shell { width: min(100% - 32px, 440px); }.sl6-hero h1 { font-size: 47px; }.sl6-lead { font-size: 15px; }.sl6-hero-art { min-height: 366px; }.sl6-product-phone { right: 2%; bottom: 0; transform: rotate(3deg) scale(.69); }.sl6-art-stat { right: 0; transform: scale(.88); transform-origin: right bottom; }.sl6-art-tag { top: 0; right: 2%; transform: scale(.9); transform-origin: right top; }.sl6-window-stats { grid-template-columns: 1fr; }.sl6-window-stats > div { min-height: 70px; }.sl6-window-table > div { grid-template-columns: 1fr 1fr 50px; }.sl6-window-table > div > span:nth-child(2) { display: none; }.sl6-window-table > div > b { display: none; }.sl6-feature-grid { grid-template-columns: 1fr; }.sl6-feature-grid article { min-height: 270px; }.sl6-overview h2, .sl6-story h2, .sl6-section-heading h2, .sl6-process h2, .sl6-cta h2 { font-size: 43px; } }
 
 
 `;
@@ -6005,11 +6091,14 @@ async function saveDeviceRuntimeChanges(
 
 async function saveDeviceRuntimeChangesNow(
   state: AppState,
-  _changes: RuntimeSaveChanges
+  changes: RuntimeSaveChanges
 ) {
+  // A device sync can hold an older snapshot while an M-Pesa callback records a
+  // payment. Refresh shared state and merge only runtime data before persisting.
+  const mergedState = await mergeRuntimeSaveState(state, changes);
   if (isSupabaseStorage()) {
     try {
-      await withTimeout(saveSupabaseState(state), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase runtime save timed out");
+      await withTimeout(saveSupabaseState(mergedState), SUPABASE_OPERATION_TIMEOUT_MS, "Supabase runtime save timed out");
     } catch (error) {
       console.error(`Supabase runtime save failed: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
@@ -6018,24 +6107,70 @@ async function saveDeviceRuntimeChangesNow(
   }
   if (!isFirestoreStorage()) {
     if (STORAGE_MODE === "firestore") {
-      throw new HttpError(503, firestoreLastError
-        ? `Firestore runtime save failed: ${firestoreLastError}`
-        : "Firestore runtime save failed: Firestore is temporarily unavailable");
+      throw new HttpError(503,
+        firestoreLastError
+          ? `Firestore runtime save failed: ${firestoreLastError}`
+          : "Firestore runtime save failed: Firestore is temporarily unavailable");
     }
-    await saveJsonState(state);
+    await saveJsonState(mergedState);
     return;
   }
 
   try {
     // Always persist the compact single-doc state so STK checkouts + payments stay shared on Vercel.
-    await withTimeout(saveFirestoreState(state), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore runtime save timed out");
+    await withTimeout(saveFirestoreState(mergedState), FIRESTORE_OPERATION_TIMEOUT_MS, "Firestore runtime save timed out");
   } catch (error) {
     markFirestoreUnavailable(error);
     if (STORAGE_MODE === "firestore") {
       throw new HttpError(503, `Firestore runtime save failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    await saveJsonState(state);
+    await saveJsonState(mergedState);
   }
+}
+
+async function mergeRuntimeSaveState(state: AppState, changes: RuntimeSaveChanges): Promise<AppState> {
+  let latest: AppState;
+  try {
+    latest = await loadState({ forceRefresh: true });
+  } catch {
+    latest = state;
+  }
+
+  const affectedIds = new Set(changes.contractIds || []);
+  const sourceContracts = new Map(state.contracts.map((contract) => [contract.id, contract]));
+  const targetContracts = new Map(latest.contracts.map((contract) => [contract.id, contract]));
+
+  affectedIds.forEach((contractId) => {
+    const source = sourceContracts.get(contractId);
+    const target = targetContracts.get(contractId);
+    if (!source || !target) return;
+    const payments = new Map((target.payments || []).map((payment) => [payment.reference, payment]));
+    (source.payments || []).forEach((payment) => {
+      if (!payments.has(payment.reference)) payments.set(payment.reference, payment);
+    });
+    target.payments = Array.from(payments.values());
+
+    const sourceBinding = source.device?.binding;
+    const targetBinding = target.device?.binding;
+    if (sourceBinding && (!targetBinding || Date.parse(sourceBinding.lastSeenAt || "") >= Date.parse(targetBinding.lastSeenAt || ""))) {
+      target.device.binding = sourceBinding;
+    }
+  });
+
+  const appendById = <T extends { id: string }>(target: T[], source: T[], ids?: string[]) => {
+    const wanted = new Set(ids || []);
+    const existing = new Set(target.map((item) => item.id));
+    source.forEach((item) => {
+      if (wanted.has(item.id) && !existing.has(item.id)) target.unshift(item);
+    });
+  };
+  appendById(latest.syncEvents, state.syncEvents, changes.syncEventIds);
+  appendById(latest.deviceEvents, state.deviceEvents, changes.deviceEventIds);
+  appendById(latest.audit, state.audit, changes.auditIds);
+
+  const affectedContracts = latest.contracts.filter((contract) => affectedIds.has(contract.id));
+  if (affectedContracts.length) applyAutomaticPaymentControls(latest, affectedContracts);
+  return latest;
 }
 
 function uniqueIds(ids: string[]) {
@@ -7078,7 +7213,7 @@ async function handleMpesaStkCallback(body: any, response: any): Promise<boolean
     `[mpesa-callback] checkout=${stk.checkoutRequestId} merchant=${stk.merchantRequestId} result=${stk.resultCode} desc=${stk.resultDesc}`
   );
 
-  const state = await loadState();
+  const state = await loadState({ forceRefresh: true });
   let contract =
     resolveContractByMpesaReference(state, stk.checkoutRequestId) ||
     resolveContractByMpesaReference(state, stk.merchantRequestId);
