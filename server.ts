@@ -4795,6 +4795,53 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   .sl6-nav .sl6-actions { position: fixed !important; top: 12px !important; right: 12px !important; left: auto !important; z-index: 9999; display: flex; justify-self: auto; margin: 0 !important; transform: none !important; }
 }
 
+/* Admin dashboard responsive system: Outfit type, no horizontal overflow, touch-sized controls. */
+.ks-dash { font-family: "Outfit", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif; overflow-x: hidden; }
+.ks-dash *, .ks-dash button, .ks-dash input, .ks-dash select, .ks-dash textarea { font-family: inherit; }
+.ks-dash .shell { width: 100%; min-width: 0; }
+.ks-dash main { min-width: 0; overflow: hidden; }
+.ks-dash .dash-header { min-width: 0; }
+.ks-dash .controls { min-width: 0; }
+.ks-dash .table-wrap, .ks-dash .table-scroll, .ks-dash .panel-body { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ks-dash table { min-width: 640px; }
+@media (max-width: 900px) {
+  .ks-dash .shell { grid-template-columns: 1fr; }
+  .ks-dash aside { position: sticky; top: 0; z-index: 30; width: 100%; height: auto; min-height: 0; flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #0a0a0a; }
+  .ks-dash .brand { flex: 0 0 auto; gap: 2px; padding: 0 14px 0 0; border: 0; }
+  .ks-dash .brand > span { display: none; }
+  .ks-dash aside nav { display: flex; flex: 1 1 auto; gap: 6px; min-width: max-content; overflow-x: auto; }
+  .ks-dash aside nav button { min-height: 42px; padding: 9px 11px; white-space: nowrap; }
+  .ks-dash .side-status { display: none; }
+  .ks-dash main { padding: 18px 16px 28px; }
+  .ks-dash .dash-header { flex-direction: column; align-items: stretch; gap: 14px; margin-bottom: 18px; padding-bottom: 14px; }
+  .ks-dash .controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, .55fr); gap: 8px; }
+  .ks-dash .controls input { grid-column: 1 / -1; width: 100%; min-height: 42px; }
+  .ks-dash .controls select, .ks-dash .controls .btn, .ks-dash .controls .logout-form { width: 100%; min-width: 0; }
+  .ks-dash .controls .btn, .ks-dash .controls .logout-form .btn { min-height: 42px; }
+  .ks-dash .command-band { grid-template-columns: 1fr; }
+  .ks-dash .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ks-dash .window-grid, .ks-dash .chart-grid, .ks-dash .two-column, .ks-dash .form-grid { grid-template-columns: 1fr; }
+  .ks-dash .panel, .ks-dash .metric, .ks-dash .health-panel, .ks-dash .chart-panel { min-width: 0; }
+}
+@media (max-width: 560px) {
+  .ks-dash aside { padding: 10px 12px; }
+  .ks-dash .brand-word { font-size: 17px; }
+  .ks-dash aside nav button { min-height: 40px; padding: 8px 10px; font-size: 12px; }
+  .ks-dash main { padding: 14px 12px 24px; }
+  .ks-dash h1 { font-size: 24px; }
+  .ks-dash h2 { font-size: 17px; }
+  .ks-dash .controls { grid-template-columns: 1fr 1fr; }
+  .ks-dash .controls .logout-form { grid-column: 1 / -1; }
+  .ks-dash .metric-grid, .ks-dash .health-strip { grid-template-columns: 1fr; }
+  .ks-dash .metric, .ks-dash .health-panel, .ks-dash .panel, .ks-dash .chart-panel { border-radius: 12px; }
+  .ks-dash .panel-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .ks-dash .panel-head .actions { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+  .ks-dash .panel-head .actions .btn, .ks-dash .panel-head .actions .tiny { flex: 1 1 auto; }
+  .ks-dash .form-actions { flex-wrap: wrap; }
+  .ks-dash .form-actions .btn { flex: 1 1 100%; }
+  .ks-dash .table-wrap, .ks-dash .table-scroll { margin-inline: -2px; }
+}
+
 
 `;
 
