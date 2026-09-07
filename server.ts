@@ -4947,9 +4947,30 @@ document.addEventListener("click", async function (event) {
     if (target.dataset.action === "restrict") await api("/api/contracts/" + id + "/restrictions", { method: "POST", body: JSON.stringify({ role: role.value, level: target.dataset.level }) });
     if (target.dataset.action === "restore") await api("/api/contracts/" + id + "/restrictions?role=" + encodeURIComponent(role.value), { method: "DELETE" });
     if (target.dataset.action === "reset-binding") await api("/api/contracts/" + encodeURIComponent(id) + "/device-binding", { method: "DELETE", body: JSON.stringify({ role: role.value }) });
-    if (target.dataset.action === "delete-contract") await api("/api/contracts/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
-    if (target.dataset.action === "delete-intake") await api("/api/intakes/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
-    if (target.dataset.action === "delete-inventory-device") await api("/api/inventory-devices/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+    if (target.dataset.action === "delete-contract") {
+      state.contracts = state.contracts.filter(function (c) { return c.id !== id; });
+      render();
+      await api("/api/contracts/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+      await load();
+      showToast("Contract deleted");
+      return;
+    }
+    if (target.dataset.action === "delete-intake") {
+      state.intakes = state.intakes.filter(function (i) { return i.id !== id; });
+      render();
+      await api("/api/intakes/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+      await load();
+      showToast("Intake deleted");
+      return;
+    }
+    if (target.dataset.action === "delete-inventory-device") {
+      state.inventoryDevices = state.inventoryDevices.filter(function (d) { return d.id !== id; });
+      render();
+      await api("/api/inventory-devices/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
+      await load();
+      showToast("Device deleted");
+      return;
+    }
     if (target.dataset.action === "delete-sold-phone") await api("/api/sold-phones/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "delete-supply") await api("/api/supplies/" + encodeURIComponent(id), { method: "DELETE", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "print-plan") {
@@ -5527,10 +5548,18 @@ async function submitContract(event) {
     syncInventoryDeviceSelection(event.target);
     const body = Object.fromEntries(new FormData(event.target).entries());
     body.role = role.value;
-    await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
+    const result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
     clearFormDraft(event.target);
+    // Optimistically prepend the saved contract so the UI reflects it immediately
+    if (result && result.id) {
+      state.contracts = state.contracts.filter(function (c) { return c.id !== result.id; });
+      state.contracts.unshift(result);
+      view = "overview";
+      render();
+    } else {
+      view = "overview";
+    }
     showToast("Contract saved");
-    view = "overview";
     await load();
   } catch (error) {
     showToast(error.message);
