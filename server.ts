@@ -31,6 +31,10 @@ interface Customer {
   phone: string;
   nationalId: string;
   address: string;
+  house: string;
+  altContactName: string;
+  altContactPhone: string;
+  relationship: string;
   branch: string;
   documentName: string;
 }
@@ -41,6 +45,9 @@ interface Device {
   serial: string;
   platform: Platform;
   controlProfile: string;
+  storageColour: string;
+  accessories: string;
+  condition: string;
   binding: DeviceBinding | null;
 }
 
@@ -5272,6 +5279,10 @@ function renderRegister() {
     field("Phone number", "customerPhone", "text", true),
     field("National ID", "nationalId", "text", false),
     field("Customer address", "address", "text", false),
+    field("House / Estate / Landmark", "house", "text", false),
+    field("Alternative contact name", "altContactName", "text", false),
+    field("Alternative contact phone", "altContactPhone", "text", false),
+    field("Relationship to customer", "relationship", "text", false),
     selectField("Branch", "branch", ["Kisumu", "Nairobi", "Mobile sales"]),
     field("ID document", "documentName", "text", false),
     '<div class="form-section form-wide"><strong>Device</strong><span>Select a saved stock phone or type the device details manually.</span></div>',
@@ -5279,6 +5290,9 @@ function renderRegister() {
     field("Device model", "deviceModel", "text", true),
     field("IMEI", "imei", "text", true, "", "numeric"),
     field("Serial number", "serial", "text", true),
+    field("Storage / Colour", "storageColour", "text", false),
+    field("Accessories issued", "accessories", "text", false),
+    field("Condition at handover", "condition", "text", false),
     selectField("Platform", "platform", ["Android", "iOS"]),
     selectField("Control profile", "controlProfile", ["Android device owner", "Android work profile", "Apple supervised MDM", "Apple MDM", "Reminder only"]),
     '<div class="form-section form-wide"><strong>Terms</strong><span>Choose a repayment template, then adjust if needed.</span></div>',
@@ -5381,6 +5395,9 @@ function bindRegistrationHelpers() {
   });
   form.elements.imei.addEventListener("input", function () { form.elements.imei.value = onlyDigits(form.elements.imei.value); });
   form.elements.customerPhone.addEventListener("input", function () { form.elements.customerPhone.value = cleanPhoneText(form.elements.customerPhone.value); });
+  if (form.elements.altContactPhone) {
+    form.elements.altContactPhone.addEventListener("input", function () { form.elements.altContactPhone.value = cleanPhoneText(form.elements.altContactPhone.value); });
+  }
   form.elements.serial.addEventListener("input", function () { form.elements.serial.value = cleanSerialText(form.elements.serial.value); });
   ["deviceModel", "imei", "serial"].forEach(function (name) {
     form.elements[name].addEventListener("input", function () { clearInventoryDeviceSelection(form); });
@@ -6793,12 +6810,27 @@ function normalizeState(state: AppState): AppState {
   state.supplies = state.supplies.map(normalizeSupply);
   state.contracts.forEach((contract) => {
     contract.inventoryDeviceId = clean((contract as any).inventoryDeviceId) || null;
+    contract.customer = {
+      name: clean(contract.customer?.name),
+      phone: cleanPhone(contract.customer?.phone),
+      nationalId: clean(contract.customer?.nationalId),
+      address: clean(contract.customer?.address),
+      house: clean((contract.customer as any)?.house) || "",
+      altContactName: clean((contract.customer as any)?.altContactName) || "",
+      altContactPhone: clean((contract.customer as any)?.altContactPhone) || "",
+      relationship: clean((contract.customer as any)?.relationship) || "",
+      branch: clean(contract.customer?.branch || "Kisumu"),
+      documentName: clean(contract.customer?.documentName),
+    };
     contract.device = {
       model: clean(contract.device?.model),
       imei: cleanDigits(contract.device?.imei),
       serial: cleanSerial(contract.device?.serial),
       platform: normalizePlatform(contract.device?.platform),
       controlProfile: clean(contract.device?.controlProfile || "Android device owner"),
+      storageColour: clean((contract.device as any)?.storageColour) || "",
+      accessories: clean((contract.device as any)?.accessories) || "",
+      condition: clean((contract.device as any)?.condition) || "",
       binding: normalizeDeviceBinding(contract.device?.binding),
     };
     contract.restriction = {
@@ -7030,6 +7062,10 @@ function createContractFromPayload(body: any): Contract {
       phone: cleanPhone(body.customerPhone || body.customer?.phone),
       nationalId: clean(body.nationalId || body.customer?.nationalId),
       address: clean(body.address || body.customer?.address),
+      house: clean(body.house || body.customer?.house),
+      altContactName: clean(body.altContactName || body.customer?.altContactName),
+      altContactPhone: clean(body.altContactPhone || body.customer?.altContactPhone),
+      relationship: clean(body.relationship || body.customer?.relationship),
       branch: clean(body.branch || body.customer?.branch || "Kisumu"),
       documentName: clean(body.documentName || body.customer?.documentName),
     },
@@ -7039,6 +7075,9 @@ function createContractFromPayload(body: any): Contract {
       serial: cleanSerial(body.serial || body.device?.serial),
       platform: normalizePlatform(body.platform || body.device?.platform),
       controlProfile: clean(body.controlProfile || body.device?.controlProfile || "Android device owner"),
+      storageColour: clean(body.storageColour || body.device?.storageColour),
+      accessories: clean(body.accessories || body.device?.accessories),
+      condition: clean(body.condition || body.device?.condition),
       binding: normalizeDeviceBinding(body.device?.binding),
     },
     plan: {
@@ -9027,18 +9066,18 @@ function buildPaymentPlanPayload(
       nationalId: contract.customer.nationalId,
       phone: contract.customer.phone,
       address: contract.customer.address,
-      house: "",
-      altContactName: "",
-      altContactPhone: "",
-      relationship: "",
+      house: contract.customer.house || "",
+      altContactName: contract.customer.altContactName || "",
+      altContactPhone: contract.customer.altContactPhone || "",
+      relationship: contract.customer.relationship || "",
     },
     device: {
       model: contract.device.model,
-      storageColour: "",
+      storageColour: contract.device.storageColour || "",
       imei1: contract.device.imei,
       imei2: contract.device.serial,
-      accessories: "",
-      condition: "",
+      accessories: contract.device.accessories || "",
+      condition: contract.device.condition || "",
     },
     plan: {
       phoneValue: plan.devicePrice,
