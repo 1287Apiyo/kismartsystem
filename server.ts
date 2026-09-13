@@ -3852,6 +3852,14 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   border-color: #14201a !important;
   color: #ffffff !important;
 }
+.ks-dash .tiny.locked,
+.ks-dash .tiny.locked:disabled {
+  color: #6f7a75 !important;
+  background: #dfe4e1 !important;
+  border-color: #c6cfca !important;
+  cursor: not-allowed;
+  opacity: 1;
+}
 .ks-dash .tiny.delete {
   background: #ffffff !important;
   border-color: #e8b4b4 !important;
@@ -5036,9 +5044,9 @@ async function api(path, options) {
 }
 
 function actionToast(action, level) {
-  if (action === "restrict" && level === "Full lock") return "Lock command queued";
+  if (action === "restrict" && level === "Full lock") return "Phone locked · waiting for device sync";
   if (action === "restrict" && level === "Limited access") return "Limit command queued";
-  if (action === "restore") return "Restore command queued";
+  if (action === "restore") return "Restore requested · waiting for device sync";
   if (action === "warn") return "Warning queued";
   if (action === "remind") return "Reminder queued";
   if (action === "reset-binding") return "Device identity reset queued";
@@ -5654,8 +5662,9 @@ function contractsTable(contracts, controls) {
     const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
     const planDocEn = '<button class="tiny" data-action="print-plan" data-lang="en" data-id="' + e(c.id) + '" type="button">Print plan</button>';
     const planDocZh = '<button class="tiny" data-action="print-plan" data-lang="zh" data-id="' + e(c.id) + '" type="button">打印协议</button>';
+    const phoneLocked = c.restriction && c.restriction.active && c.restriction.level === "Full lock";
     const controlButtons = controls
-      ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button">Limit Use</button><button class="tiny danger" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button">Lock Phone</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
+      ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button"' + (phoneLocked ? ' disabled' : '') + '>Limit Use</button><button class="tiny danger' + (phoneLocked ? ' locked' : '') + '" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button"' + (phoneLocked ? ' disabled' : '') + '>' + (phoneLocked ? 'Phone Locked' : 'Lock Phone') + '</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
       : planDocEn + planDocZh + '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
     return '<tr><td><div class="cell-main"><strong>' + e(c.customer.name) + '</strong><span>' + e(c.customer.phone + " - " + c.customer.branch) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.device.model) + '</strong><span>IMEI ' + e(c.device.imei) + '</span><span>' + e(bindingStatus) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.plan.frequency) + '</strong><span><span class="money-value">' + money.format(c.plan.installment) + '</span> installment</span></div></td><td class="money-cell">' + money.format(c.progress.paid) + '</td><td class="money-cell">' + money.format(c.progress.balance) + '</td><td class="money-cell">' + money.format(c.progress.arrears) + '</td><td>' + e(c.progress.nextDue || "Fully paid") + '</td><td>' + badge(c.status) + '</td><td><div class="actions">' + controlButtons + '</div></td></tr>';
   }).join("") + '</tbody></table></div>';
