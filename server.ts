@@ -7661,6 +7661,16 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     const fullLockActive = contract.restriction.active && contract.restriction.level === "Full lock";
     const limitedActive = isLimitedAccessRestriction(contract.restriction);
 
+    // An explicit admin Full lock is independent of payment state. Only Restore
+    // may reopen the phone, even when the account becomes current or fully paid.
+    if (fullLockActive) {
+      if (contract.restriction.holdAutoRestrict) {
+        contract.restriction.holdAutoRestrict = false;
+        changes.contractIds?.push(contract.id);
+      }
+      return;
+    }
+
     // Restore when the account is current. A future remaining balance must not restrict the phone.
     if (!hasOverduePayableBalance(progress)) {
       if (!contract.restriction.active && !contract.restriction.holdAutoRestrict) return;
@@ -7684,15 +7694,6 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
           ? "Overdue amount cleared; restore command queued automatically."
           : "No payable balance remaining; restore command queued automatically.",
       });
-      return;
-    }
-
-    // Unpaid balance remains: keep Full lock if admin set it.
-    if (fullLockActive) {
-      if (contract.restriction.holdAutoRestrict) {
-        contract.restriction.holdAutoRestrict = false;
-        changes.contractIds?.push(contract.id);
-      }
       return;
     }
 
@@ -8265,8 +8266,9 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
   const pendingCommands = currentPendingDeviceCommands(state, contract)
     .map(deviceCommandPayload);
   const hasBalance = hasPayableBalance(progress);
+  // Admin Full lock is authoritative regardless of whether the contract is paid.
   const fullLockActive =
-    Boolean(contract.restriction.active && contract.restriction.level === "Full lock" && hasBalance);
+    Boolean(contract.restriction.active && contract.restriction.level === "Full lock");
   // Limit stays on for any unpaid balance until a real payment is confirmed (balance drops).
   const paymentOnlyActive = shouldEnforcePaymentLimit(contract, progress) && !fullLockActive;
   const effectiveRestriction: RestrictionState = paymentOnlyActive || fullLockActive
