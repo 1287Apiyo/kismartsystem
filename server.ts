@@ -4955,15 +4955,15 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 /* Contract detail page */
 .cd-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .cd-top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; border: 1px solid #0d1f17; border-radius: 14px; color: #ffffff; background: linear-gradient(135deg, #0d1f17 0%, #114b34 100%); box-shadow: 0 14px 34px rgba(13, 31, 23, .16); }
+.cd-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; border: 1px solid #d5e0d9; border-radius: 12px; color: #14201a; background: #ffffff; box-shadow: none; }
 .cd-hero-main { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.cd-avatar { display: grid; place-items: center; width: 54px; height: 54px; flex: 0 0 54px; border: 1px solid rgba(125, 206, 166, .45); border-radius: 14px; background: rgba(21, 154, 95, .28); color: #9fe7c0; font-size: 20px; font-weight: 700; letter-spacing: .02em; }
-.cd-hero-eyebrow { margin: 0; color: #9fe7c0; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-.cd-hero h2 { margin: 5px 0 0; color: #ffffff; font-size: 24px; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
-.cd-hero-meta { margin: 7px 0 0; color: #a8c0b3; font-size: 13px; }
+.cd-avatar { display: grid; place-items: center; width: 54px; height: 54px; flex: 0 0 54px; border: 1px solid #d5e0d9; border-radius: 12px; background: #f4f7f5; color: #0d6b45; font-size: 20px; font-weight: 700; letter-spacing: .02em; }
+.cd-hero-eyebrow { margin: 0; color: #5a6b62; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.cd-hero h2 { margin: 5px 0 0; color: #14201a; font-size: 24px; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
+.cd-hero-meta { margin: 7px 0 0; color: #6f7a75; font-size: 13px; }
 .cd-hero-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 12px; border: 1px solid rgba(125, 206, 166, .5); border-radius: 999px; background: rgba(21, 154, 95, .25); color: #c9f3dd; font-size: 12px; font-weight: 650; white-space: nowrap; }
-.cd-chip.soft { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .1); color: #eef4f0; }
+.cd-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 12px; border: 1px solid #d5e0d9; border-radius: 999px; background: #ffffff; color: #14201a; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.cd-chip.soft { border-color: #d5e0d9; background: #f4f7f5; color: #5a6b62; }
 .cd-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .cd-kpi { position: relative; overflow: hidden; padding: 16px 18px; border: 1px solid #d5e0d9; border-radius: 12px; background: #ffffff; box-shadow: 0 6px 18px rgba(13, 31, 23, .04); }
 .cd-kpi::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: #8b8b82; opacity: .5; }
@@ -5643,7 +5643,7 @@ function renderRegister() {
     field("Alternative contact phone", "altContactPhone", "text", false),
     field("Relationship to customer", "relationship", "text", false),
     selectField("Branch", "branch", ["Kisumu", "Nairobi", "Mobile sales"]),
-    '<label class="form-wide">ID document <input name="idDocument" type="file" accept="application/pdf,image/jpeg,image/png"><small>PDF, JPG, or PNG · up to 6 MB · stored privately in Firebase Storage.</small></label>',
+    '<label class="form-wide">ID document <input name="idDocument" type="file"><small>Any file format · up to 6 MB · stored privately in Firebase Storage.</small></label>',
     '<div class="form-section form-wide"><strong>Device</strong><span>Select a saved stock phone or type the device details manually.</span></div>',
     '<label>Device preset<select name="devicePreset">' + deviceOptions().map(function (item) { return '<option value="' + e(item.id) + '">' + e(item.label) + '</option>'; }).join("") + '</select></label>',
     field("Device model", "deviceModel", "text", true),
@@ -5889,14 +5889,14 @@ async function submitContract(event) {
     formData.delete("idDocument");
     const body = Object.fromEntries(formData.entries());
     body.role = role.value;
-    const result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
+    let result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
     clearFormDraft(event.target);
     // Optimistically prepend the saved contract so the UI reflects it immediately
     if (result && result.id) {
       if (documentFile instanceof File && documentFile.size) {
         if (documentFile.size > 6 * 1024 * 1024) throw new Error("ID document must be no larger than 6 MB");
         const dataBase64 = await fileToBase64(documentFile);
-        await api("/api/contracts/" + encodeURIComponent(result.id) + "/id-document", {
+        result = await api("/api/contracts/" + encodeURIComponent(result.id) + "/id-document", {
           method: "POST",
           body: JSON.stringify({ role: role.value, fileName: documentFile.name, contentType: documentFile.type, dataBase64: dataBase64 })
         });
@@ -7011,9 +7011,7 @@ function safeDocumentName(value: unknown) {
 
 async function uploadContractIdDocument(contractId: string, body: any) {
   const name = safeDocumentName(body.fileName);
-  const contentType = clean(body.contentType).toLowerCase();
-  const allowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
-  if (!allowed.has(contentType)) throw new HttpError(400, "ID document must be a PDF, JPG, or PNG file");
+  const contentType = clean(body.contentType).toLowerCase() || "application/octet-stream";
   const encoded = clean(body.dataBase64).replace(/^data:[^;]+;base64,/, "");
   if (!encoded) throw new HttpError(400, "Choose an ID document to upload");
   const buffer = Buffer.from(encoded, "base64");
