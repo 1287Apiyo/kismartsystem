@@ -8308,8 +8308,10 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
   // Admin Full lock is authoritative regardless of whether the contract is paid.
   const fullLockActive =
     Boolean(contract.restriction.active && contract.restriction.level === "Full lock");
-  // Limit stays on for any unpaid balance until a real payment is confirmed (balance drops).
-  const paymentOnlyActive = shouldEnforcePaymentLimit(contract, progress) && !fullLockActive;
+  // A dashboard-issued Limited access command is authoritative immediately;
+  // automatic limits additionally require an overdue payable balance.
+  const manualLimitedAccess = Boolean(contract.restriction.active && contract.restriction.level === "Limited access");
+  const paymentOnlyActive = (manualLimitedAccess || shouldEnforcePaymentLimit(contract, progress)) && !fullLockActive;
   const effectiveRestriction: RestrictionState = paymentOnlyActive || fullLockActive
     ? {
         active: true,
@@ -8383,6 +8385,7 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
     paymentOnly: {
       // Limit while any financed balance remains — only payment confirmation clears it.
       active: paymentOnlyActive,
+      manual: manualLimitedAccess,
       label: "KISMART-only mode",
       reason: paymentOnlyActive
         ? "overdue-payment"
