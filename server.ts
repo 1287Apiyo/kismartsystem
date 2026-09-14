@@ -4952,6 +4952,75 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
   .ks-dash .table-wrap, .ks-dash .table-scroll { margin-inline: -2px; }
 }
 
+/* Contract detail page */
+.cd-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.cd-top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; border: 1px solid #0d1f17; border-radius: 14px; color: #ffffff; background: linear-gradient(135deg, #0d1f17 0%, #114b34 100%); box-shadow: 0 14px 34px rgba(13, 31, 23, .16); }
+.cd-hero-main { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.cd-avatar { display: grid; place-items: center; width: 54px; height: 54px; flex: 0 0 54px; border: 1px solid rgba(125, 206, 166, .45); border-radius: 14px; background: rgba(21, 154, 95, .28); color: #9fe7c0; font-size: 20px; font-weight: 700; letter-spacing: .02em; }
+.cd-hero-eyebrow { margin: 0; color: #9fe7c0; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.cd-hero h2 { margin: 5px 0 0; color: #ffffff; font-size: 24px; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
+.cd-hero-meta { margin: 7px 0 0; color: #a8c0b3; font-size: 13px; }
+.cd-hero-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 12px; border: 1px solid rgba(125, 206, 166, .5); border-radius: 999px; background: rgba(21, 154, 95, .25); color: #c9f3dd; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.cd-chip.soft { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .1); color: #eef4f0; }
+.cd-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
+.cd-kpi { position: relative; overflow: hidden; padding: 16px 18px; border: 1px solid #d5e0d9; border-radius: 12px; background: #ffffff; box-shadow: 0 6px 18px rgba(13, 31, 23, .04); }
+.cd-kpi::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: #8b8b82; opacity: .5; }
+.cd-kpi span { display: block; color: #5a6b62; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.cd-kpi strong { display: block; margin: 10px 0 6px; color: #14201a; font-size: 21px; line-height: 1.05; font-weight: 700; overflow-wrap: anywhere; }
+.cd-kpi small { color: #6f7a75; font-size: 12px; }
+.cd-kpi.green::after { background: #0d6b45; opacity: 1; }
+.cd-kpi.green strong { color: #0b5a3a; }
+.cd-kpi.accent::after { background: #159a5f; opacity: 1; }
+.cd-kpi.accent strong { color: #0d6b45; }
+.cd-kpi.red::after { background: #9b2c2c; opacity: 1; }
+.cd-kpi.red strong { color: #9b2c2c; }
+.cd-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 16px; align-items: start; }
+.cd-col { display: grid; gap: 16px; min-width: 0; }
+.cd-card { padding: 18px; border: 1px solid #d5e0d9; border-radius: 12px; background: #ffffff; box-shadow: 0 6px 18px rgba(13, 31, 23, .04); }
+.cd-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.cd-card-head h3 { margin: 0; color: #14201a; font-size: 14px; font-weight: 700; }
+.cd-pill { padding: 4px 10px; border: 1px solid #b7dfc9; border-radius: 999px; background: #e7f3ed; color: #0b5a3a; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.cd-rows { display: grid; }
+.cd-row { display: grid; grid-template-columns: minmax(104px, 38%) minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid #edf1ee; }
+.cd-row:first-child { border-top: 0; padding-top: 0; }
+.cd-row span { color: #6f7a75; font-size: 12px; }
+.cd-row strong { color: #14201a; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.cd-track { height: 9px; overflow: hidden; border-radius: 999px; background: #e7f3ed; }
+.cd-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #0d6b45, #159a5f); }
+.cd-progress-meta { display: flex; justify-content: space-between; gap: 12px; margin: 10px 0 14px; color: #6f7a75; font-size: 12px; }
+.cd-progress-meta strong { color: #14201a; font-weight: 700; }
+.cd-payment-list, .cd-note-list { display: grid; }
+.cd-payment { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid #edf1ee; }
+.cd-payment:first-child { border-top: 0; padding-top: 0; }
+.cd-payment strong { display: block; color: #14201a; font-size: 14px; font-weight: 700; }
+.cd-payment span { color: #6f7a75; font-size: 12px; }
+.cd-payment-side { display: flex; align-items: center; gap: 10px; }
+.cd-note { display: grid; gap: 3px; padding: 11px 0; border-top: 1px solid #edf1ee; }
+.cd-note:first-child { border-top: 0; padding-top: 0; }
+.cd-note strong { color: #14201a; font-size: 13px; font-weight: 600; }
+.cd-note span { color: #4a564f; font-size: 12px; }
+.cd-note small { color: #839089; font-size: 11px; }
+.cd-empty { padding: 4px 0; color: #839089; font-size: 13px; }
+.cd-actions-card { margin-top: 16px; }
+.cd-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-doc { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.cd-doc strong { color: #14201a; font-size: 13px; font-weight: 600; }
+.cd-doc span { color: #6f7a75; font-size: 12px; }
+
+@media (max-width: 980px) {
+  .cd-grid { grid-template-columns: 1fr; }
+  .cd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .cd-kpis { grid-template-columns: 1fr; }
+  .cd-hero { padding: 18px; }
+  .cd-hero h2 { font-size: 20px; }
+  .cd-row { grid-template-columns: 1fr; gap: 3px; }
+  .cd-top-actions .btn { flex: 1 1 auto; }
+}
+
 
 `;
 
@@ -4968,6 +5037,7 @@ const search = document.getElementById("search");
 const toast = document.getElementById("toast");
 let state = null;
 let view = "overview";
+let activeContractId = null;
 let liveEvents = null;
 let liveReloadTimer = 0;
 let liveReloadPending = false;
@@ -5013,6 +5083,7 @@ const planTemplates = [
 const titles = {
   overview: ["Portfolio command", "Command Center"],
   contracts: ["Repayment ledger", "Portfolio"],
+  contract: ["Contract record", "Contract details"],
   register: ["Customer onboarding", "Onboarding"],
   sales: ["Daily sales log", "Sold phones"],
   supply: ["Partner supply log", "Supply"],
@@ -5026,6 +5097,7 @@ const titles = {
 document.querySelectorAll("[data-view]").forEach(function (button) {
   button.addEventListener("click", function () {
     view = button.dataset.view;
+    activeContractId = null;
     document.querySelectorAll("[data-view]").forEach(function (item) {
       item.classList.toggle("active", item === button);
     });
@@ -5048,13 +5120,12 @@ document.addEventListener("click", async function (event) {
     if (target.dataset.action === "view-contract") {
       const contract = state.contracts.find(function (item) { return item.id === id; });
       if (!contract) throw new Error("Contract not found");
-      const doc = contract.customer.document;
-      app.innerHTML = '<section class="panel"><div class="panel-head"><div><h2>' + e(contract.customer.name) + '</h2><p>' + e(contract.id + " · " + contract.customer.phone) + '</p></div><button class="btn secondary" data-action="back-contracts" type="button">Back to contracts</button></div><div class="detail-grid"><div><strong>National ID</strong><span>' + e(contract.customer.nationalId || "—") + '</span></div><div><strong>Address</strong><span>' + e(contract.customer.address || "—") + '</span></div><div><strong>Residence</strong><span>' + e(contract.customer.house || "—") + '</span></div><div><strong>Alternative contact</strong><span>' + e([contract.customer.altContactName, contract.customer.altContactPhone, contract.customer.relationship].filter(Boolean).join(" · ") || "—") + '</span></div><div><strong>Branch</strong><span>' + e(contract.customer.branch || "—") + '</span></div><div><strong>Device</strong><span>' + e(contract.device.model + " · IMEI " + contract.device.imei + " · " + contract.device.serial) + '</span></div><div><strong>Device condition</strong><span>' + e([contract.device.storageColour, contract.device.accessories, contract.device.condition].filter(Boolean).join(" · ") || "—") + '</span></div><div><strong>Payment plan</strong><span>' + e(contract.plan.frequency + " · " + money.format(contract.plan.installment) + " × " + contract.plan.periodCount) + '</span></div></div><hr><div class="actions"><button class="btn secondary" data-action="print-plan" data-lang="en" data-id="' + e(contract.id) + '" type="button">Download payment plan</button>' + (doc ? '<button class="btn" data-action="download-id-document" data-id="' + e(contract.id) + '" type="button">Download uploaded ID</button>' : '') + '</div><h3>ID document</h3><p>' + e(doc ? contract.customer.documentName : "No ID document uploaded") + '</p></section>';
-      eyebrow.textContent = "Contract record";
-      title.textContent = "Contract details";
+      activeContractId = id;
+      view = "contract";
+      render();
       return;
     }
-    if (target.dataset.action === "back-contracts") { view = "contracts"; render(); return; }
+    if (target.dataset.action === "back-contracts") { activeContractId = null; view = "contracts"; render(); return; }
     if (target.dataset.action === "download-id-document") {
       await downloadAndOpenPdf("/api/contracts/" + encodeURIComponent(id) + "/id-document", "id-document-" + id);
       showToast("ID document downloaded");
@@ -5218,6 +5289,7 @@ function render() {
   const pair = titles[view] || titles.overview;
   eyebrow.textContent = pair[0];
   title.textContent = pair[1];
+  if (view === "contract") { renderContractDetail(); return; }
   if (view === "overview") renderOverview();
   if (view === "contracts") renderContracts();
   if (view === "register") renderRegister();
@@ -5271,6 +5343,154 @@ function renderOverview() {
 
 function renderContracts() {
   app.innerHTML = '<section class="panel"><div class="panel-head"><div><h2>Financing Book</h2><p>Search by customer, phone, device, IMEI, branch, or payment reference.</p></div><button class="btn secondary" type="button" onclick="location.href=\'/api/export/contracts.csv\'">Export CSV</button></div>' + contractsTable(filteredContracts(), false) + '</section>';
+}
+
+function renderContractDetail() {
+  const contract = state.contracts.find(function (item) { return item.id === activeContractId; });
+  if (!contract) {
+    activeContractId = null;
+    view = "contracts";
+    eyebrow.textContent = titles.contracts[0];
+    title.textContent = titles.contracts[1];
+    renderContracts();
+    return;
+  }
+  eyebrow.textContent = "Contract record";
+  title.textContent = contract.customer.name;
+  app.innerHTML = contractDetailHtml(contract);
+}
+
+function detailRow(label, value) {
+  const shown = value == null || value === "" ? "—" : value;
+  return '<div class="cd-row"><span>' + e(label) + '</span><strong>' + e(shown) + '</strong></div>';
+}
+
+function detailCard(title, rowsHtml) {
+  return '<section class="cd-card"><div class="cd-card-head"><h3>' + e(title) + '</h3></div><div class="cd-rows">' + rowsHtml + '</div></section>';
+}
+
+function contractDetailHtml(contract) {
+  const progress = contract.progress || {};
+  const customer = contract.customer || {};
+  const device = contract.device || {};
+  const plan = contract.plan || {};
+  const doc = customer.document;
+  const total = numberValue(plan.devicePrice);
+  const paid = numberValue(progress.paid);
+  const balance = numberValue(progress.balance);
+  const arrears = numberValue(progress.arrears);
+  const percent = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+  const initials = String(customer.name || "?").trim().split(/\s+/).slice(0, 2).map(function (part) { return part.charAt(0).toUpperCase(); }).join("") || "?";
+  const restriction = contract.restriction || {};
+  const payments = (contract.payments || []).slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  const warnings = (contract.warningsSent || []).slice().reverse();
+  const contactLine = [customer.phone, customer.branch].filter(Boolean).join(" · ");
+  const lockDisabled = restriction.active && restriction.level === "Full lock";
+
+  const kpis = [
+    { label: "Device price", value: money.format(total), note: (plan.frequency || "Plan") + " repayment", tone: "neutral" },
+    { label: "Paid to date", value: money.format(paid), note: percent + "% recovered", tone: "green" },
+    { label: "Remaining balance", value: money.format(balance), note: "Still collectible", tone: "accent" },
+    { label: "Overdue amount", value: money.format(arrears), note: arrears > 0 ? numberValue(progress.overdueDays) + " days past grace" : "Nothing overdue", tone: arrears > 0 ? "red" : "green" }
+  ];
+
+  const paymentRows = payments.length
+    ? payments.slice(0, 6).map(function (payment) {
+        return '<div class="cd-payment"><div><strong>' + money.format(numberValue(payment.amount)) + '</strong><span>' + e(payment.method || "Payment") + ' · ' + e(payment.reference || "No reference") + '</span></div><div class="cd-payment-side"><span>' + e(payment.date || "—") + '</span>' + badge(payment.status || "Synced") + '</div></div>';
+      }).join("")
+    : '<div class="cd-empty">No payments recorded yet.</div>';
+
+  const noticeRows = warnings.length
+    ? warnings.slice(0, 4).map(function (notice) {
+        return '<div class="cd-note"><strong>' + e(notice.stage || "Notice") + '</strong><span>' + e(notice.message || "") + '</span><small>' + e(notice.date || "") + ' · ' + money.format(numberValue(notice.amount)) + '</small></div>';
+      }).join("")
+    : '<div class="cd-empty">No notices sent to this customer.</div>';
+
+  return [
+    '<div class="cd-top">',
+    '<button class="btn secondary" data-action="back-contracts" type="button">&larr; Back to contracts</button>',
+    '<div class="cd-top-actions">',
+    '<button class="btn secondary" data-action="print-plan" data-lang="en" data-id="' + e(contract.id) + '" type="button">Payment plan (EN)</button>',
+    '<button class="btn secondary" data-action="print-plan" data-lang="zh" data-id="' + e(contract.id) + '" type="button">打印协议</button>',
+    '</div>',
+    '</div>',
+
+    '<section class="cd-hero">',
+    '<div class="cd-hero-main">',
+    '<span class="cd-avatar" aria-hidden="true">' + e(initials) + '</span>',
+    '<div><p class="cd-hero-eyebrow">Contract ' + e(contract.id) + '</p><h2>' + e(customer.name || "Unnamed customer") + '</h2><p class="cd-hero-meta">' + e(contactLine || "No contact on file") + '</p></div>',
+    '</div>',
+    '<div class="cd-hero-badges"><span class="cd-chip">' + e(contract.status || "Active") + '</span><span class="cd-chip soft">' + e(contract.warning || "No warning") + '</span></div>',
+    '</section>',
+
+    '<section class="cd-kpis">',
+    kpis.map(function (kpi) {
+      return '<div class="cd-kpi ' + kpi.tone + '"><span>' + e(kpi.label) + '</span><strong>' + e(kpi.value) + '</strong><small>' + e(kpi.note) + '</small></div>';
+    }).join(""),
+    '</section>',
+
+    '<div class="cd-grid">',
+    '<div class="cd-col">',
+    detailCard("Customer profile", [
+      detailRow("Full name", customer.name),
+      detailRow("National ID", customer.nationalId),
+      detailRow("Phone", customer.phone),
+      detailRow("Address", customer.address),
+      detailRow("Residence", customer.house),
+      detailRow("Branch", customer.branch),
+      detailRow("Alt contact", [customer.altContactName, customer.altContactPhone].filter(Boolean).join(" · ")),
+      detailRow("Relationship", customer.relationship)
+    ].join("")),
+    detailCard("Device on finance", [
+      detailRow("Model", device.model),
+      detailRow("IMEI", device.imei),
+      detailRow("Serial", device.serial),
+      detailRow("Platform", device.platform),
+      detailRow("Control profile", device.controlProfile),
+      detailRow("Condition", [device.storageColour, device.accessories, device.condition].filter(Boolean).join(" · ")),
+      detailRow("Device identity", device.binding ? "Locked to this handset" : "Not enrolled")
+    ].join("")),
+    detailCard("Financing terms", [
+      detailRow("Device price", money.format(total)),
+      detailRow("Deposit", money.format(numberValue(plan.deposit))),
+      detailRow("Installment", money.format(numberValue(plan.installment)) + " · " + (plan.frequency || "—")),
+      detailRow("Periods", plan.periodCount),
+      detailRow("Grace days", plan.graceDays),
+      detailRow("Opened", String(contract.createdAt || "").slice(0, 10))
+    ].join("")),
+    '</div>',
+    '<div class="cd-col">',
+    '<section class="cd-card"><div class="cd-card-head"><h3>Repayment progress</h3><span class="cd-pill">' + percent + '%</span></div>',
+    '<div class="cd-track"><div class="cd-fill" style="width:' + percent + '%"></div></div>',
+    '<div class="cd-progress-meta"><span><strong>' + money.format(paid) + '</strong> paid</span><span><strong>' + money.format(balance) + '</strong> remaining</span></div>',
+    '<div class="cd-rows">',
+    detailRow("Next due", progress.nextDue || "Fully paid"),
+    detailRow("Next amount", progress.nextDue ? money.format(numberValue(progress.nextAmount)) : "—"),
+    detailRow("Overdue", money.format(arrears)),
+    detailRow("Device control", restriction.active ? restriction.level : "No restriction"),
+    '</div></section>',
+    '<section class="cd-card"><div class="cd-card-head"><h3>Recent payments</h3><span class="cd-pill">' + payments.length + ' total</span></div><div class="cd-payment-list">' + paymentRows + '</div></section>',
+    '<section class="cd-card"><div class="cd-card-head"><h3>Customer notices</h3><span class="cd-pill">' + warnings.length + '</span></div><div class="cd-note-list">' + noticeRows + '</div></section>',
+    '</div>',
+    '</div>',
+
+    '<section class="cd-card cd-actions-card"><div class="cd-card-head"><h3>Actions</h3></div><div class="cd-actions">',
+    '<button class="tiny" data-action="remind" data-id="' + e(contract.id) + '" type="button">Send reminder</button>',
+    '<button class="tiny" data-action="warn" data-id="' + e(contract.id) + '" type="button">Send warning</button>',
+    '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(contract.id) + '" type="button"' + (lockDisabled ? " disabled" : "") + '>Limit use</button>',
+    '<button class="tiny danger' + (lockDisabled ? " locked" : "") + '" data-action="restrict" data-level="Full lock" data-id="' + e(contract.id) + '" data-confirm="' + e("Lock " + (customer.name || "this customer") + "'s phone?") + '" type="button"' + (lockDisabled ? " disabled" : "") + '>' + (lockDisabled ? "Phone locked" : "Lock phone") + '</button>',
+    '<button class="tiny success" data-action="restore" data-id="' + e(contract.id) + '" data-confirm="' + e("Restore phone access for " + (customer.name || "this customer") + "?") + '" type="button">Restore phone</button>',
+    '<button class="tiny" data-action="reset-binding" data-id="' + e(contract.id) + '" data-confirm="' + e("Reset device identity for " + (customer.name || "this customer") + "?") + '" type="button">Reset device ID</button>',
+    doc ? '<button class="tiny" data-action="download-id-document" data-id="' + e(contract.id) + '" type="button">Download ID document</button>' : '',
+    '<button class="tiny delete" data-action="delete-contract" data-id="' + e(contract.id) + '" data-confirm="' + e("Delete contract " + contract.id + " for " + (customer.name || "this customer") + "? This cannot be undone.") + '" type="button">Delete contract</button>',
+    '</div></section>',
+
+    '<section class="cd-card"><div class="cd-card-head"><h3>ID document</h3></div><div class="cd-doc">',
+    doc
+      ? '<strong>' + e(customer.documentName || "Uploaded document") + '</strong><span>' + e([doc.contentType, doc.size ? Math.round(doc.size / 1024) + " KB" : ""].filter(Boolean).join(" · ")) + '</span><button class="tiny" data-action="download-id-document" data-id="' + e(contract.id) + '" type="button">Download</button>'
+      : '<span class="cd-empty">No ID document uploaded for this customer.</span>',
+    '</div></section>'
+  ].join("");
 }
 
 function renderSales() {
