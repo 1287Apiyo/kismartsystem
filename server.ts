@@ -10,6 +10,7 @@ import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin
 import { getAuth } from "firebase-admin/auth";
 import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 type Frequency = "Daily" | "Weekly" | "Monthly" | "Custom";
 /** Document language for printable PDF/HTML reports. */
@@ -39,6 +40,7 @@ interface Customer {
   relationship: string;
   branch: string;
   documentName: string;
+  document?: { storagePath: string; contentType: string; size: number; uploadedAt: string } | null;
 }
 
 interface Device {
@@ -305,6 +307,7 @@ const SUPABASE_OPERATION_TIMEOUT_MS = numberFrom(
 const FIREBASE_PROJECT_ID = clean(process.env.FIREBASE_PROJECT_ID || "kismart-456ee").replace(/^\uFEFF/, "");
 const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
 const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+const FIREBASE_STORAGE_BUCKET = clean(process.env.KISMART_FIREBASE_STORAGE_BUCKET || `${FIREBASE_PROJECT_ID}.firebasestorage.app`);
 // RTDB is the live control plane. Firestore remains the durable record store.
 const REALTIME_DATABASE_URL = clean(
   process.env.KISMART_REALTIME_DATABASE_URL || "https://kismart-456ee-default-rtdb.firebaseio.com"
@@ -950,6 +953,38 @@ async function routeRequest(request: any, response: any) {
     if (assignedDevice) await saveFirestoreCoreRecord("inventoryDevices", assignedDevice.id, assignedDevice, true);
     await saveState(state, { requireFirestore: true });
     sendJson(response, 201, enrichContract(contract));
+    return;
+  }
+
+  const contractDocumentMatch = url.pathname.match(/^\/api\/contracts\/([^/]+)\/id-document$/);
+  if (contractDocumentMatch && method === "POST") {
+    const body = await readJson(request);
+    assertRole(body.role || "Admin", "contracts.write");
+    const state = await loadState();
+    const contract = findContractOrThrow(state, decodeURIComponent(contractDocumentMatch[1]));
+    const document = await uploadContractIdDocument(contract.id, body);
+    contract.customer.documentName = document.name;
+    contract.customer.document = document.record;
+    addAudit(state, body.role || "Admin", "ID document uploaded", `${contract.id} - ${document.name}`);
+    await saveFirestoreCoreRecord("contracts", contract.id, contract, true);
+    await saveState(state, { requireFirestore: true });
+    sendJson(response, 201, enrichContract(contract));
+    return;
+  }
+
+  if (contractDocumentMatch && method === "GET") {
+    const state = await loadState({ forceRefresh: remoteStorageReady() });
+    const contract = findContractOrThrow(state, decodeURIComponent(contractDocumentMatch[1]));
+    const document = contract.customer.document;
+    if (!document?.storagePath) throw new HttpError(404, "No ID document has been uploaded for this contract");
+    const [buffer] = await getStorage(getFirebaseApp()).bucket(FIREBASE_STORAGE_BUCKET).file(document.storagePath).download();
+    response.writeHead(200, {
+      ...responseHeaders(document.contentType || "application/octet-stream"),
+      "Content-Disposition": `attachment; filename="${safeDocumentName(contract.customer.documentName || `id-${contract.id}`)}"`,
+      "Content-Length": String(buffer.length),
+      "Cache-Control": "no-store",
+    });
+    response.end(buffer);
     return;
   }
 
@@ -5010,6 +5045,21 @@ document.addEventListener("click", async function (event) {
   target.disabled = true;
   target.classList.add("busy");
   try {
+    if (target.dataset.action === "view-contract") {
+      const contract = state.contracts.find(function (item) { return item.id === id; });
+      if (!contract) throw new Error("Contract not found");
+      const doc = contract.customer.document;
+      app.innerHTML = '<section class="panel"><div class="panel-head"><div><h2>' + e(contract.customer.name) + '</h2><p>' + e(contract.id + " · " + contract.customer.phone) + '</p></div><button class="btn secondary" data-action="back-contracts" type="button">Back to contracts</button></div><div class="detail-grid"><div><strong>National ID</strong><span>' + e(contract.customer.nationalId || "—") + '</span></div><div><strong>Address</strong><span>' + e(contract.customer.address || "—") + '</span></div><div><strong>Residence</strong><span>' + e(contract.customer.house || "—") + '</span></div><div><strong>Alternative contact</strong><span>' + e([contract.customer.altContactName, contract.customer.altContactPhone, contract.customer.relationship].filter(Boolean).join(" · ") || "—") + '</span></div><div><strong>Branch</strong><span>' + e(contract.customer.branch || "—") + '</span></div><div><strong>Device</strong><span>' + e(contract.device.model + " · IMEI " + contract.device.imei + " · " + contract.device.serial) + '</span></div><div><strong>Device condition</strong><span>' + e([contract.device.storageColour, contract.device.accessories, contract.device.condition].filter(Boolean).join(" · ") || "—") + '</span></div><div><strong>Payment plan</strong><span>' + e(contract.plan.frequency + " · " + money.format(contract.plan.installment) + " × " + contract.plan.periodCount) + '</span></div></div><hr><div class="actions"><button class="btn secondary" data-action="print-plan" data-lang="en" data-id="' + e(contract.id) + '" type="button">Download payment plan</button>' + (doc ? '<button class="btn" data-action="download-id-document" data-id="' + e(contract.id) + '" type="button">Download uploaded ID</button>' : '') + '</div><h3>ID document</h3><p>' + e(doc ? contract.customer.documentName : "No ID document uploaded") + '</p></section>';
+      eyebrow.textContent = "Contract record";
+      title.textContent = "Contract details";
+      return;
+    }
+    if (target.dataset.action === "back-contracts") { view = "contracts"; render(); return; }
+    if (target.dataset.action === "download-id-document") {
+      await downloadAndOpenPdf("/api/contracts/" + encodeURIComponent(id) + "/id-document", "id-document-" + id);
+      showToast("ID document downloaded");
+      return;
+    }
     if (target.dataset.action === "warn") await api("/api/contracts/" + id + "/warnings", { method: "POST", body: JSON.stringify({ role: role.value }) });
     if (target.dataset.action === "remind") await api("/api/contracts/" + id + "/reminders", { method: "POST", body: JSON.stringify({ role: role.value, type: "Payment reminder" }) });
     if (target.dataset.action === "restrict") await api("/api/contracts/" + id + "/restrictions", { method: "POST", body: JSON.stringify({ role: role.value, level: target.dataset.level }) });
@@ -5373,7 +5423,7 @@ function renderRegister() {
     field("Alternative contact phone", "altContactPhone", "text", false),
     field("Relationship to customer", "relationship", "text", false),
     selectField("Branch", "branch", ["Kisumu", "Nairobi", "Mobile sales"]),
-    field("ID document", "documentName", "text", false),
+    '<label class="form-wide">ID document <input name="idDocument" type="file" accept="application/pdf,image/jpeg,image/png"><small>PDF, JPG, or PNG · up to 6 MB · stored privately in Firebase Storage.</small></label>',
     '<div class="form-section form-wide"><strong>Device</strong><span>Select a saved stock phone or type the device details manually.</span></div>',
     '<label>Device preset<select name="devicePreset">' + deviceOptions().map(function (item) { return '<option value="' + e(item.id) + '">' + e(item.label) + '</option>'; }).join("") + '</select></label>',
     field("Device model", "deviceModel", "text", true),
@@ -5614,12 +5664,23 @@ async function submitContract(event) {
   event.preventDefault();
   try {
     syncInventoryDeviceSelection(event.target);
-    const body = Object.fromEntries(new FormData(event.target).entries());
+    const formData = new FormData(event.target);
+    const documentFile = formData.get("idDocument");
+    formData.delete("idDocument");
+    const body = Object.fromEntries(formData.entries());
     body.role = role.value;
     const result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
     clearFormDraft(event.target);
     // Optimistically prepend the saved contract so the UI reflects it immediately
     if (result && result.id) {
+      if (documentFile instanceof File && documentFile.size) {
+        if (documentFile.size > 6 * 1024 * 1024) throw new Error("ID document must be no larger than 6 MB");
+        const dataBase64 = await fileToBase64(documentFile);
+        await api("/api/contracts/" + encodeURIComponent(result.id) + "/id-document", {
+          method: "POST",
+          body: JSON.stringify({ role: role.value, fileName: documentFile.name, contentType: documentFile.type, dataBase64: dataBase64 })
+        });
+      }
       state.contracts = state.contracts.filter(function (c) { return c.id !== result.id; });
       state.contracts.unshift(result);
       view = "overview";
@@ -5720,12 +5781,13 @@ function contractsTable(contracts, controls) {
     const deleteButton = '<button class="tiny delete" data-action="delete-contract" data-id="' + e(c.id) + '" data-confirm="' + e("Delete contract " + c.id + " for " + c.customer.name + "? This cannot be undone.") + '" type="button">Delete</button>';
     const bindingStatus = c.device.binding ? "Identity locked (same phone auto-recovers)" : "Identity not enrolled";
     const bindingButton = '<button class="tiny" data-action="reset-binding" data-id="' + e(c.id) + '" data-confirm="' + e("Reset device identity for " + c.customer.name + "? Only needed for a different physical handset, not for reinstall on the same phone.") + '" type="button">Reset ID</button>';
+    const viewButton = '<button class="tiny" data-action="view-contract" data-id="' + e(c.id) + '" type="button">View</button>';
     const planDocEn = '<button class="tiny" data-action="print-plan" data-lang="en" data-id="' + e(c.id) + '" type="button">Print plan</button>';
     const planDocZh = '<button class="tiny" data-action="print-plan" data-lang="zh" data-id="' + e(c.id) + '" type="button">打印协议</button>';
     const phoneLocked = c.restriction && c.restriction.active && c.restriction.level === "Full lock";
     const controlButtons = controls
       ? '<button class="tiny" data-action="restrict" data-level="Limited access" data-id="' + e(c.id) + '" type="button"' + (phoneLocked ? ' disabled' : '') + '>Limit Use</button><button class="tiny danger' + (phoneLocked ? ' locked' : '') + '" data-action="restrict" data-level="Full lock" data-id="' + e(c.id) + '" data-confirm="' + e("Lock " + c.customer.name + "'s phone?") + '" type="button"' + (phoneLocked ? ' disabled' : '') + '>' + (phoneLocked ? 'Phone Locked' : 'Lock Phone') + '</button><button class="tiny success" data-action="restore" data-id="' + e(c.id) + '" data-confirm="' + e("Restore phone access for " + c.customer.name + "?") + '" type="button">Restore Phone</button>' + bindingButton
-      : planDocEn + planDocZh + '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
+      : viewButton + planDocEn + planDocZh + '<button class="tiny" data-action="remind" data-id="' + e(c.id) + '" type="button">Remind</button><button class="tiny" data-action="warn" data-id="' + e(c.id) + '" type="button">Warn</button>' + deleteButton;
     return '<tr><td><div class="cell-main"><strong>' + e(c.customer.name) + '</strong><span>' + e(c.customer.phone + " - " + c.customer.branch) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.device.model) + '</strong><span>IMEI ' + e(c.device.imei) + '</span><span>' + e(bindingStatus) + '</span></div></td><td><div class="cell-main"><strong>' + e(c.plan.frequency) + '</strong><span><span class="money-value">' + money.format(c.plan.installment) + '</span> installment</span></div></td><td class="money-cell">' + money.format(c.progress.paid) + '</td><td class="money-cell">' + money.format(c.progress.balance) + '</td><td class="money-cell">' + money.format(c.progress.arrears) + '</td><td>' + e(c.progress.nextDue || "Fully paid") + '</td><td>' + badge(c.status) + '</td><td><div class="actions">' + controlButtons + '</div></td></tr>';
   }).join("") + '</tbody></table></div>';
 }
@@ -6699,6 +6761,15 @@ function getFirestoreDb() {
   return firestoreDb;
 }
 
+function fileToBase64(file) {
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function () { resolve(String(reader.result || "").split(",").pop() || ""); };
+    reader.onerror = function () { reject(new Error("Could not read the selected ID document")); };
+    reader.readAsDataURL(file);
+  });
+}
+
 function getFirebaseApp() {
   return getApps()[0] || initializeApp({
     credential: firebaseCredential(),
@@ -6711,6 +6782,33 @@ function getRealtimeDb() {
   if (realtimeDb) return realtimeDb;
   realtimeDb = getDatabase(getFirebaseApp());
   return realtimeDb;
+}
+
+function safeDocumentName(value: unknown) {
+  const name = clean(value).replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[_\.]+/, "");
+  return name || "identity-document";
+}
+
+async function uploadContractIdDocument(contractId: string, body: any) {
+  const name = safeDocumentName(body.fileName);
+  const contentType = clean(body.contentType).toLowerCase();
+  const allowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
+  if (!allowed.has(contentType)) throw new HttpError(400, "ID document must be a PDF, JPG, or PNG file");
+  const encoded = clean(body.dataBase64).replace(/^data:[^;]+;base64,/, "");
+  if (!encoded) throw new HttpError(400, "Choose an ID document to upload");
+  const buffer = Buffer.from(encoded, "base64");
+  if (!buffer.length || buffer.length > 6 * 1024 * 1024) throw new HttpError(400, "ID document must be no larger than 6 MB");
+  const storagePath = `contract-id-documents/${safeDocumentName(contractId)}/${Date.now()}-${name}`;
+  try {
+    await getStorage(getFirebaseApp()).bucket(FIREBASE_STORAGE_BUCKET).file(storagePath).save(buffer, {
+      resumable: false,
+      metadata: { contentType, cacheControl: "private, no-store" },
+    });
+  } catch (error) {
+    console.error("[id-document] Firebase Storage upload failed:", error);
+    throw new HttpError(503, "ID document storage is unavailable. Configure KISMART_FIREBASE_STORAGE_BUCKET and Firebase Storage.");
+  }
+  return { name, record: { storagePath, contentType, size: buffer.length, uploadedAt: nowIso() } };
 }
 
 function realtimeControlPath(contract: Contract) {
@@ -6964,6 +7062,14 @@ function normalizeState(state: AppState): AppState {
       relationship: clean((contract.customer as any)?.relationship) || "",
       branch: clean(contract.customer?.branch || "Kisumu"),
       documentName: clean(contract.customer?.documentName),
+      document: (contract.customer as any)?.document?.storagePath
+        ? {
+            storagePath: clean((contract.customer as any).document.storagePath),
+            contentType: clean((contract.customer as any).document.contentType),
+            size: numberFrom((contract.customer as any).document.size),
+            uploadedAt: clean((contract.customer as any).document.uploadedAt),
+          }
+        : null,
     };
     contract.device = {
       model: clean(contract.device?.model),
