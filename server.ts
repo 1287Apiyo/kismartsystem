@@ -1,12 +1,14 @@
 import { createServer } from "node:http";
 // Reconnected to Firestore for kismart-456ee
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
+import { createCustomToken } from "firebase-admin/auth";
+import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
 
 type Frequency = "Daily" | "Weekly" | "Monthly" | "Custom";
@@ -301,6 +303,13 @@ const SUPABASE_OPERATION_TIMEOUT_MS = numberFrom(
 const FIREBASE_PROJECT_ID = clean(process.env.FIREBASE_PROJECT_ID || "kismart-456ee").replace(/^\uFEFF/, "");
 const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
 const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+// RTDB is the live control plane. Firestore remains the durable record store.
+const REALTIME_DATABASE_URL = clean(
+  process.env.KISMART_REALTIME_DATABASE_URL || "https://kismart-456ee-default-rtdb.firebaseio.com"
+).replace(/\/$/, "");
+const FIREBASE_WEB_API_KEY = clean(process.env.FIREBASE_API_KEY || "");
+const FIREBASE_WEB_APP_ID = clean(process.env.FIREBASE_APP_ID || "");
+const FIREBASE_WEB_SENDER_ID = clean(process.env.FIREBASE_MESSAGING_SENDER_ID || "");
 const FIRESTORE_DATABASE = normalizeFirestoreDatabase(process.env.KISMART_FIRESTORE_DATABASE || "");
 const FIRESTORE_COLLECTION = process.env.KISMART_FIRESTORE_COLLECTION || "kismartApp";
 const FIRESTORE_DOCUMENT = process.env.KISMART_FIRESTORE_DOCUMENT || "state";
@@ -436,6 +445,7 @@ const eventClients = new Set<any>();
 const deviceEventClients = new Map<string, Set<any>>();
 let firestoreDb: any = null;
 let firestoreStateDoc: any = null;
+let realtimeDb: any = null;
 let firestoreUnavailable = false;
 let firestoreUnavailableUntil = 0;
 let firestoreLastError: string | null = null;
@@ -1213,8 +1223,11 @@ async function routeRequest(request: any, response: any) {
     const state = await loadState();
     const contract = findContractOrThrow(state, restrictionMatch[1]);
     applyRestriction(state, contract, normalizeRestrictionLevel(body.level || "Full lock"));
-    const mdmDispatch = await dispatchPendingDeviceCommands(state, 25);
     addAudit(state, body.role || "Admin", "Device restriction applied", `${contract.id} - ${contract.restriction.level}`);
+    // Deliver to the enrolled phone first. This is deliberately independent of
+    // the Firestore write and command queue so the control takes effect live.
+    await publishRealtimeDeviceControl(state, contract, "restriction");
+    const mdmDispatch = await dispatchPendingDeviceCommands(state, 25);
     broadcastDevicePolicyChange(state, contract, "restriction");
     await saveState(state);
     sendJson(response, 200, { contract: enrichContract(contract), mdmDispatch });
@@ -1226,6 +1239,7 @@ async function routeRequest(request: any, response: any) {
     const state = await loadState();
     const contract = findContractOrThrow(state, restrictionMatch[1]);
     restoreDevice(state, contract, "Manual restoration");
+    await publishRealtimeDeviceControl(state, contract, "restore");
     const mdmDispatch = await dispatchPendingDeviceCommands(state, 25);
     broadcastDevicePolicyChange(state, contract, "restore");
     await saveState(state);
@@ -1327,6 +1341,26 @@ async function routeRequest(request: any, response: any) {
       queueDeviceRuntimeSave(state, identityCheck.changes);
     }
     openDeviceEventStream(request, response, contract.id);
+    return;
+  }
+
+  // The phone uses this only to receive the public Firebase configuration and
+  // a short-lived custom-auth token. RTDB rules then permit it to read exactly
+  // its own control state and nothing else.
+  const realtimeConfigMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/realtime-config$/);
+  if (method === "GET" && realtimeConfigMatch) {
+    assertDeviceSecret(request);
+    const state = await loadState({ forceRefresh: true });
+    const contract = findContractByImeiOrThrow(state, decodeURIComponent(realtimeConfigMatch[1]));
+    const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request), "Realtime control connection");
+    if (!identityCheck.allowed) {
+      sendJson(response, 423, { error: "Device identity mismatch", detail: identityCheck.detail });
+      return;
+    }
+    if (identityCheck.changes.contractIds?.length || identityCheck.changes.deviceEventIds?.length) {
+      queueDeviceRuntimeSave(state, identityCheck.changes);
+    }
+    sendJson(response, 200, await buildRealtimeDeviceConfig(contract));
     return;
   }
 
@@ -6658,12 +6692,54 @@ function getFirestoreStateDoc() {
 
 function getFirestoreDb() {
   if (firestoreDb) return firestoreDb;
-  const app = getApps()[0] || initializeApp({
-    credential: firebaseCredential(),
-    projectId: FIREBASE_PROJECT_ID,
-  });
+  const app = getFirebaseApp();
   firestoreDb = FIRESTORE_DATABASE ? getFirestore(app, FIRESTORE_DATABASE) : getFirestore(app);
   return firestoreDb;
+}
+
+function getFirebaseApp() {
+  return getApps()[0] || initializeApp({
+    credential: firebaseCredential(),
+    projectId: FIREBASE_PROJECT_ID,
+    databaseURL: REALTIME_DATABASE_URL,
+  });
+}
+
+function getRealtimeDb() {
+  if (realtimeDb) return realtimeDb;
+  realtimeDb = getDatabase(getFirebaseApp());
+  return realtimeDb;
+}
+
+function realtimeControlPath(contract: Contract) {
+  return `deviceControls/${contract.id}`;
+}
+
+function realtimeDeviceUid(contract: Contract) {
+  return `kismart_device_${createHash("sha256").update(contract.id).digest("hex").slice(0, 40)}`;
+}
+
+async function buildRealtimeDeviceConfig(contract: Contract) {
+  if (!REALTIME_DATABASE_URL || !FIREBASE_WEB_API_KEY || !FIREBASE_WEB_APP_ID || !FIREBASE_WEB_SENDER_ID) {
+    throw new HttpError(503, "Realtime control is not configured on the server.");
+  }
+  return {
+    projectId: FIREBASE_PROJECT_ID,
+    databaseUrl: REALTIME_DATABASE_URL,
+    apiKey: FIREBASE_WEB_API_KEY,
+    appId: FIREBASE_WEB_APP_ID,
+    senderId: FIREBASE_WEB_SENDER_ID,
+    path: realtimeControlPath(contract),
+    customToken: await createCustomToken(realtimeDeviceUid(contract), { contractId: contract.id }),
+  };
+}
+
+async function publishRealtimeDeviceControl(state: AppState, contract: Contract, action: "restriction" | "restore") {
+  await getRealtimeDb().ref(realtimeControlPath(contract)).set({
+    revision: nowIso(),
+    action,
+    policy: buildDevicePolicy(state, contract),
+  });
 }
 
 async function loadFirestoreCollectionState(doc: any) {

@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "deviceControls": {
+      "$contractId": {
+        ".read": "auth != null && auth.token.contractId === $contractId",
+        ".write": false
+      }
+    }
+  }
+}
