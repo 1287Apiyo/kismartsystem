@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
-import { createCustomToken } from "firebase-admin/auth";
+import { getAuth } from "firebase-admin/auth";
 import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -6730,7 +6730,10 @@ async function buildRealtimeDeviceConfig(contract: Contract) {
     appId: FIREBASE_WEB_APP_ID,
     senderId: FIREBASE_WEB_SENDER_ID,
     path: realtimeControlPath(contract),
-    customToken: await createCustomToken(realtimeDeviceUid(contract), { contractId: contract.id }),
+    customToken: await getAuth(getFirebaseApp()).createCustomToken(
+      realtimeDeviceUid(contract),
+      { contractId: contract.id }
+    ),
   };
 }
 
@@ -10287,6 +10290,10 @@ function buildSelfTestState(): AppState {
       phone: "0700000000",
       nationalId: "TEST-ID",
       address: "Test address",
+      house: "",
+      altContactName: "",
+      altContactPhone: "",
+      relationship: "",
       branch: "Test branch",
       documentName: "test-id.pdf",
     },
@@ -10296,6 +10303,9 @@ function buildSelfTestState(): AppState {
       serial: "TEST-SERIAL-001",
       platform: "Android",
       controlProfile: "Android device owner",
+      storageColour: "",
+      accessories: "",
+      condition: "",
       binding: null,
     },
     plan: {
