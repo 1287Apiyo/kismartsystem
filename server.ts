@@ -137,6 +137,8 @@ interface RestrictionState {
   active: boolean;
   level: RestrictionLevel;
   appliedAt: string | null;
+  /** True only for an administrator-issued Limit/Lock, never an arrears automation. */
+  manual?: boolean;
   /**
    * When true, automatic arrears-based Limited access will not re-lock the phone.
    * Set by admin Restore / paid-up restore; cleared when admin applies a restriction again.
@@ -1222,7 +1224,7 @@ async function routeRequest(request: any, response: any) {
     assertRole(body.role || "Admin", "restrictions.write");
     const state = await loadState();
     const contract = findContractOrThrow(state, restrictionMatch[1]);
-    applyRestriction(state, contract, normalizeRestrictionLevel(body.level || "Full lock"));
+    applyRestriction(state, contract, normalizeRestrictionLevel(body.level || "Full lock"), { manual: true });
     addAudit(state, body.role || "Admin", "Device restriction applied", `${contract.id} - ${contract.restriction.level}`);
     // Deliver to the enrolled phone first. This is deliberately independent of
     // the Firestore write and command queue so the control takes effect live.
@@ -6978,6 +6980,7 @@ function normalizeState(state: AppState): AppState {
       active: Boolean(contract.restriction?.active),
       level: normalizeRestrictionLevel(contract.restriction?.level || "None"),
       appliedAt: clean(contract.restriction?.appliedAt) || null,
+      manual: Boolean(contract.restriction?.manual),
       holdAutoRestrict: Boolean(contract.restriction?.holdAutoRestrict),
     };
   });
@@ -7708,11 +7711,17 @@ function issueWarning(state: AppState, contract: Contract, stageOverride?: Warni
   return warning;
 }
 
-function applyRestriction(state: AppState, contract: Contract, level: RestrictionLevel) {
+function applyRestriction(
+  state: AppState,
+  contract: Contract,
+  level: RestrictionLevel,
+  options: { manual?: boolean } = {}
+) {
   contract.restriction = {
     active: level !== "None",
     level,
     appliedAt: level === "None" ? null : todayIso(),
+    manual: Boolean(options.manual),
     // Admin/system restriction clears any temporary restore hold.
     holdAutoRestrict: false,
   };
@@ -7741,6 +7750,7 @@ function restoreDevice(
     active: false,
     level: "None",
     appliedAt: null,
+    manual: false,
     // Admin restore holds auto-limit; automatic balance/arrears restores leave hold off so future overdue can re-limit.
     holdAutoRestrict: options.holdAutoRestrict ?? true,
   };
@@ -7772,6 +7782,7 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     const progress = getProgress(contract);
     const fullLockActive = contract.restriction.active && contract.restriction.level === "Full lock";
     const limitedActive = isLimitedAccessRestriction(contract.restriction);
+    const manualLimitedAccess = Boolean(limitedActive && contract.restriction.manual);
 
     // An explicit admin Full lock is independent of payment state. Only Restore
     // may reopen the phone, even when the account becomes current or fully paid.
@@ -7782,6 +7793,10 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
       }
       return;
     }
+
+    // Dashboard Limit is an explicit administrator action. It persists until
+    // Restore even when the account is already fully paid or not overdue.
+    if (manualLimitedAccess) return;
 
     // Restore when the account is current. A future remaining balance must not restrict the phone.
     if (!hasOverduePayableBalance(progress)) {
@@ -8389,7 +8404,11 @@ function buildDevicePolicy(state: AppState, contract: Contract, bindingToken = "
     Boolean(contract.restriction.active && contract.restriction.level === "Full lock");
   // A dashboard-issued Limited access command is authoritative immediately;
   // automatic limits additionally require an overdue payable balance.
-  const manualLimitedAccess = Boolean(contract.restriction.active && contract.restriction.level === "Limited access");
+  const manualLimitedAccess = Boolean(
+    contract.restriction.active &&
+    contract.restriction.level === "Limited access" &&
+    contract.restriction.manual
+  );
   const paymentOnlyActive = (manualLimitedAccess || shouldEnforcePaymentLimit(contract, progress)) && !fullLockActive;
   const effectiveRestriction: RestrictionState = paymentOnlyActive || fullLockActive
     ? {
