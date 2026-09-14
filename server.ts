@@ -7731,6 +7731,10 @@ function applyAutomaticPaymentControls(state: AppState, contracts = state.contra
     }
 
     // Unpaid balance: force payment-limit mode. Do not honour admin restore holds while money is still owed.
+    // Manual Restore suppresses automatic re-locking until an administrator
+    // chooses a new restriction level.
+    if (contract.restriction.holdAutoRestrict) return;
+
     if (limitedActive) {
       if (contract.restriction.holdAutoRestrict) {
         contract.restriction.holdAutoRestrict = false;
@@ -7783,6 +7787,8 @@ function isLimitedAccessRestriction(restriction: RestrictionState | null | undef
  * Full lock takes precedence when admin set it.
  */
 function shouldEnforcePaymentLimit(contract: Contract, progress = getProgress(contract)) {
+  // A manual Restore remains effective until a new restriction is issued.
+  if (contract.restriction?.holdAutoRestrict) return false;
   if (!hasOverduePayableBalance(progress)) return false;
   if (contract.restriction?.active && contract.restriction.level === "Full lock") return false;
   // Unpaid → limit. Restriction may still be flipping in applyAutomaticPaymentControls; enforce on policy anyway.
