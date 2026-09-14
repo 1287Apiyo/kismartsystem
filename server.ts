@@ -2214,7 +2214,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--ink); box-shadow
 .btn.secondary { color: var(--ink); background: #ffffff; border-color: var(--ink); }
 .btn.signout-btn { color: #ffffff; background: #b42323; border-color: #b42323; }
 .btn.signout-btn:hover { background: #941b1b; border-color: #941b1b; }
-.btn:disabled, .tiny:disabled, .btn.busy, .tiny.busy { opacity: .58; cursor: wait; }
+.btn:disabled, .tiny:disabled, .btn.busy, .tiny.busy { opacity: .58; cursor: wait; }
+.btn[type="submit"]:disabled, #contractSaveButton:disabled { color: #ffffff; background: #8b8b82; border-color: #8b8b82; opacity: 1; }
 .landing-actions .btn.secondary { color: #101415; background: #ffffff; border-color: #cdd5cf; }
 .tiny { min-height: 30px; border: 1px solid var(--ink); padding: 5px 9px; color: var(--ink); background: var(--surface-2); font-size: 12px; }
 .tiny[data-action="remind"], .tiny[data-action="warn"] { border-color: var(--accent); background: var(--accent); }
@@ -5628,7 +5629,7 @@ function renderRegister() {
   })).join("");
   app.innerHTML = [
     '<div class="layout">',
-    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields. After saving, print the payment plan agreement from Contracts.</p></div><button class="btn" form="contractForm" type="submit">Save Contract</button></div>',
+    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields. After saving, print the payment plan agreement from Contracts.</p></div><button class="btn" id="contractSaveButton" form="contractForm" type="submit">Save Contract</button></div>',
     '<form id="contractForm">',
     '<input name="intakeId" type="hidden">',
     '<input name="inventoryDeviceId" type="hidden">',
@@ -5894,9 +5895,16 @@ function fileToBase64(file) {
 }
 
 async function submitContract(event) {
-  event.preventDefault();
-  try {
-    syncInventoryDeviceSelection(event.target);
+  event.preventDefault();
+  const saveButton = document.getElementById("contractSaveButton");
+  const originalSaveLabel = saveButton ? saveButton.textContent : "Save Contract";
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.classList.add("busy");
+    saveButton.textContent = "Saving…";
+  }
+  try {
+    syncInventoryDeviceSelection(event.target);
     const formData = new FormData(event.target);
     const documentFile = formData.get("idDocument");
     formData.delete("idDocument");
@@ -5923,12 +5931,17 @@ async function submitContract(event) {
     }
     showToast("Contract saved");
     await load();
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-async function submitInventoryDevice(event) {
+  } catch (error) {
+    showToast(error.message);
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.classList.remove("busy");
+      saveButton.textContent = originalSaveLabel;
+    }
+  }
+}
+
+async function submitInventoryDevice(event) {
   event.preventDefault();
   try {
     const body = Object.fromEntries(new FormData(event.target).entries());
