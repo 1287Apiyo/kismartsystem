@@ -432,6 +432,8 @@ let cachedState: AppState | null = null;
 let cachedStateLoadedAt = 0;
 let cachedJsonMtimeMs = 0;
 const eventClients = new Set<any>();
+/** Authenticated Android live-control streams, keyed by enrolled contract. */
+const deviceEventClients = new Map<string, Set<any>>();
 let firestoreDb: any = null;
 let firestoreStateDoc: any = null;
 let firestoreUnavailable = false;
@@ -1213,6 +1215,7 @@ async function routeRequest(request: any, response: any) {
     applyRestriction(state, contract, normalizeRestrictionLevel(body.level || "Full lock"));
     const mdmDispatch = await dispatchPendingDeviceCommands(state, 25);
     addAudit(state, body.role || "Admin", "Device restriction applied", `${contract.id} - ${contract.restriction.level}`);
+    broadcastDevicePolicyChange(state, contract, "restriction");
     await saveState(state);
     sendJson(response, 200, { contract: enrichContract(contract), mdmDispatch });
     return;
@@ -1224,6 +1227,7 @@ async function routeRequest(request: any, response: any) {
     const contract = findContractOrThrow(state, restrictionMatch[1]);
     restoreDevice(state, contract, "Manual restoration");
     const mdmDispatch = await dispatchPendingDeviceCommands(state, 25);
+    broadcastDevicePolicyChange(state, contract, "restore");
     await saveState(state);
     sendJson(response, 200, { contract: enrichContract(contract), mdmDispatch });
     return;
@@ -1303,6 +1307,26 @@ async function routeRequest(request: any, response: any) {
     addAudit(state, body.role || "Admin", "Apple MDM commands dispatched", `${result.synced} synced, ${result.failed} failed, ${result.pending} pending`);
     await saveState(state);
     sendJson(response, 200, result);
+    return;
+  }
+
+  // Live delivery channel for an enrolled Android phone. The policy itself is
+  // still stored durably; this stream merely tells the phone to fetch and
+  // apply that authoritative policy immediately.
+  const deviceLiveMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/live$/);
+  if (method === "GET" && deviceLiveMatch) {
+    assertDeviceSecret(request);
+    const state = await loadState({ forceRefresh: true });
+    const contract = findContractByImeiOrThrow(state, decodeURIComponent(deviceLiveMatch[1]));
+    const identityCheck = verifyDeviceIdentity(state, contract, readDeviceIdentity(request), "Live control connection");
+    if (!identityCheck.allowed) {
+      sendJson(response, 423, { error: "Device identity mismatch", detail: identityCheck.detail });
+      return;
+    }
+    if (identityCheck.changes.contractIds?.length || identityCheck.changes.deviceEventIds?.length) {
+      queueDeviceRuntimeSave(state, identityCheck.changes);
+    }
+    openDeviceEventStream(request, response, contract.id);
     return;
   }
 
@@ -5382,7 +5406,7 @@ function renderPayments() {
 }
 
 function renderDevices() {
-  app.innerHTML = '<div class="layout-even"><section class="panel"><div class="panel-head"><div><h2>Control Coverage</h2><p>Platform policy position for financed devices.</p></div></div>' + compatibilityList() + '</section><section class="panel"><div class="panel-head"><div><h2>Restriction Queue</h2><p>Commands are audited before device sync.</p></div></div>' + devicePipeline() + '</section></div><section class="panel"><div class="panel-head"><div><h2>Device Command Ledger</h2><p>Use Lock Phone to close the phone, and Restore Phone to reopen it on the next device sync.</p></div></div>' + contractsTable(filteredContracts(), true) + '</section>';
+  app.innerHTML = '<div class="layout-even"><section class="panel"><div class="panel-head"><div><h2>Control Coverage</h2><p>Platform policy position for financed devices.</p></div></div>' + compatibilityList() + '</section><section class="panel"><div class="panel-head"><div><h2>Restriction Queue</h2><p>Commands are audited and delivered to online phones in real time.</p></div></div>' + devicePipeline() + '</section></div><section class="panel"><div class="panel-head"><div><h2>Device Command Ledger</h2><p>Lock Phone and Restore Phone are delivered immediately to connected handsets; the phone also syncs the recorded policy for recovery.</p></div></div>' + contractsTable(filteredContracts(), true) + '</section>';
 }
 
 function renderOperations() {
@@ -5845,7 +5869,7 @@ function healthLabel(score) {
 }
 
 function apiSurface() {
-  const routes = ["/api/events", "/api/state", "/api/contracts", "/api/contracts/:id", "/api/inventory-devices", "/api/inventory-devices/:id", "/api/intakes/:id", "/api/contracts/:id/payments", "/api/contracts/:id/warnings", "/api/contracts/:id/restrictions", "/api/automation/run", "/api/notifications/dispatch", "/api/device-commands/dispatch", "/api/devices/:imei/policy", "/api/devices/:imei/sync", "/api/devices/:imei/tamper", "/api/devices/:imei/paybill-stk", "/api/payments/mpesa-callback", "/api/payments/paybill-callback", "/api/payments/airtel-callback", "/api/reports/summary", "/api/readiness"];
+  const routes = ["/api/events", "/api/state", "/api/contracts", "/api/contracts/:id", "/api/inventory-devices", "/api/inventory-devices/:id", "/api/intakes/:id", "/api/contracts/:id/payments", "/api/contracts/:id/warnings", "/api/contracts/:id/restrictions", "/api/automation/run", "/api/notifications/dispatch", "/api/device-commands/dispatch", "/api/devices/:imei/live", "/api/devices/:imei/policy", "/api/devices/:imei/sync", "/api/devices/:imei/tamper", "/api/devices/:imei/paybill-stk", "/api/payments/mpesa-callback", "/api/payments/paybill-callback", "/api/payments/airtel-callback", "/api/reports/summary", "/api/readiness"];
   return '<div class="table-wrap"><table><thead><tr><th>Route</th><th>Purpose</th></tr></thead><tbody>' + routes.map(function (route) {
     return '<tr><td>' + e(route) + '</td><td>' + e(routePurpose(route)) + '</td></tr>';
   }).join("") + '</tbody></table></div>';
@@ -9768,6 +9792,43 @@ function openEventStream(request: any, response: any) {
     clearInterval(heartbeat);
     eventClients.delete(response);
   });
+}
+
+function openDeviceEventStream(request: any, response: any, contractId: string) {
+  response.writeHead(200, {
+    ...responseHeaders("text/event-stream; charset=utf-8"),
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+  });
+  let clients = deviceEventClients.get(contractId);
+  if (!clients) {
+    clients = new Set<any>();
+    deviceEventClients.set(contractId, clients);
+  }
+  clients.add(response);
+  writeEvent(response, "connected", { time: nowIso() });
+  const heartbeat = setInterval(() => writeEvent(response, "heartbeat", { time: nowIso() }), 20000);
+  request.on("close", () => {
+    clearInterval(heartbeat);
+    clients?.delete(response);
+    if (clients && clients.size === 0) deviceEventClients.delete(contractId);
+  });
+}
+
+function broadcastDevicePolicyChange(state: AppState, contract: Contract, reason: "restriction" | "restore") {
+  const clients = deviceEventClients.get(contract.id);
+  if (!clients) return;
+  // Include the complete policy so the phone can enforce in-memory immediately,
+  // even while the durable Firestore write is still completing.
+  const payload = { time: nowIso(), reason, policy: buildDevicePolicy(state, contract) };
+  for (const client of Array.from(clients)) {
+    try {
+      writeEvent(client, "policy", payload);
+    } catch {
+      clients.delete(client);
+    }
+  }
+  if (clients.size === 0) deviceEventClients.delete(contract.id);
 }
 
 function broadcastStateChange() {
