@@ -12,6 +12,8 @@ import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
+import QRCode from "qrcode";
+
 type Frequency = "Daily" | "Weekly" | "Monthly" | "Custom";
 /** Document language for printable PDF/HTML reports. */
 type DocLang = "en" | "zh";
@@ -204,6 +206,16 @@ interface AndroidEnterpriseSignupTransaction {
   failureCode?: string;
 }
 
+interface AndroidManagementEnrollmentTokenRecord {
+  id: string;
+  enterpriseName: string;
+  policyName: string;
+  tokenName: string;
+  qrCode: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
 interface WarningStage {
   name: string;
   daysAfterDue: number;
@@ -328,6 +340,10 @@ const ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON = process.env.KISMART_ANDROID_MANA
 const ANDROID_MANAGEMENT_PROJECT_ID = clean(process.env.KISMART_ANDROID_MANAGEMENT_PROJECT_ID || FIREBASE_PROJECT_ID);
 
 const ANDROID_MANAGEMENT_COLLECTION = clean(process.env.KISMART_ANDROID_MANAGEMENT_COLLECTION || "androidManagementSignups");
+
+const ANDROID_MANAGEMENT_ENTERPRISE_NAME = clean(process.env.KISMART_ANDROID_MANAGEMENT_ENTERPRISE_NAME);
+
+const ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION = clean(process.env.KISMART_ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION || "androidManagementEnrollmentTokens");
 
 const ANDROID_MANAGEMENT_SCOPE = "https://www.googleapis.com/auth/androidmanagement";
 
@@ -574,6 +590,15 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/admin/android") {
+    if (!getAdminSession(request)) {
+      sendRedirect(response, "/login");
+      return;
+    }
+    sendHtml(response, renderAndroidManagementConsole());
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/login") {
     if (getAdminSession(request)) {
       sendRedirect(response, "/admin");
@@ -745,6 +770,30 @@ async function routeRequest(request: any, response: any) {
   if (method === "GET" && url.pathname === "/api/android/signup") {
     const signup = await createAndroidEnterpriseSignup();
     sendRedirect(response, signup.signupUrl);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/android/policies/default") {
+    const policy = await createOrUpdateDefaultAndroidPolicy();
+    sendJson(response, 200, policy);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/android/enrollment-tokens") {
+    const enrollment = await createAndroidEnrollmentToken();
+    sendJson(response, 201, enrollment);
+    return;
+  }
+
+  const enrollmentQrMatch = url.pathname.match(/^\/api\/android\/enrollment-tokens\/([A-Za-z0-9_-]+)\/qr$/);
+  if (method === "GET" && enrollmentQrMatch) {
+    await sendAndroidEnrollmentQr(enrollmentQrMatch[1], response);
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/android/devices") {
+    const devices = await listAndroidManagementDevices();
+    sendJson(response, 200, devices);
     return;
   }
 
@@ -1937,6 +1986,7 @@ function renderDashboard() {
         <div class="controls">
           <input id="search" type="search" placeholder="Search name, phone, IMEI">
           <select id="role" aria-label="Current role"><option>Admin</option><option>Branch Manager</option><option>Cashier</option><option>Support Agent</option></select>
+          <a class="btn secondary" href="/admin/android">Android enrollment</a>
           <button class="btn secondary" id="refresh" type="button">Refresh</button>
           <form class="logout-form" method="post" action="/logout"><button class="btn signout-btn" type="submit">Sign out</button></form>
         </div>
@@ -1948,6 +1998,25 @@ function renderDashboard() {
   <script type="module" src="/assets/app.js"></script>
 </body>
 </html>`;
+}
+
+function renderAndroidManagementConsole() {
+  const shop = escapeHtml(SHOP_NAME);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${shop} | Android enrollment</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body class="ks-dash"><main class="shell" style="max-width:760px;padding:48px 20px">
+<p><a class="btn secondary" href="/admin">← Back to dashboard</a></p>
+<section class="panel"><div class="panel-head"><div><h1>Android test-device enrollment</h1><p>Create a minimal policy, then generate a one-hour QR code for one factory-reset company device.</p></div></div>
+<div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="createPolicy">Create test policy</button><button class="btn" id="createToken">Generate enrollment QR</button><button class="btn secondary" id="refreshDevices">Refresh enrolled devices</button></div>
+<p id="status" role="status" style="margin-top:18px"></p><div id="qr" style="margin-top:18px"></div><pre id="devices" style="white-space:pre-wrap;overflow:auto"></pre></section>
+</main><script>
+const status=document.getElementById('status'),qr=document.getElementById('qr'),devices=document.getElementById('devices');
+async function api(path,options){const r=await fetch(path,options);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||d.error||'Request failed');return d}
+document.getElementById('createPolicy').onclick=async()=>{try{status.textContent='Creating test policy…';const d=await api('/api/android/policies/default',{method:'POST'});status.textContent='Policy ready: '+d.policyName}catch(e){status.textContent=e.message}};
+document.getElementById('createToken').onclick=async()=>{try{status.textContent='Generating QR…';const d=await api('/api/android/enrollment-tokens',{method:'POST'});status.textContent='QR expires: '+d.expiresAt;qr.replaceChildren();const title=document.createElement('p');title.textContent='Scan this only on the factory-reset test device:';const image=document.createElement('img');image.src=d.qrImageUrl;image.width=420;image.height=420;image.alt='Android enrollment QR code';qr.append(title,image)}catch(e){status.textContent=e.message}};
+document.getElementById('refreshDevices').onclick=async()=>{try{status.textContent='Loading devices…';const d=await api('/api/android/devices');devices.textContent=JSON.stringify(d.devices,null,2);status.textContent=d.devices.length+' enrolled device(s)'}catch(e){status.textContent=e.message}};
+</script></body></html>`;
 }
 
 function navItem(view: string, label: string, icon: string, active = false) {
@@ -9893,26 +9962,141 @@ async function getAndroidManagementAccessToken() {
   return token.access_token as string;
 }
 
-async function androidManagementRequest(path: string, body: Record<string, unknown>) {
+async function androidManagementRequest(
+  path: string,
+  body?: Record<string, unknown>,
+  method: "GET" | "POST" | "PATCH" = "POST"
+) {
   const accessToken = await getAndroidManagementAccessToken();
   const apiResponse = await fetch(`${ANDROID_MANAGEMENT_API}${path}`, {
-    method: "POST",
+    method,
     headers: {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!apiResponse.ok) {
-    if ([400, 404, 409].includes(apiResponse.status)) {
-      throw new HttpError(409, "The Android enterprise signup token is invalid, expired, or already used. Start a new signup.");
-    }
     if ([401, 403].includes(apiResponse.status)) {
       throw new HttpError(502, "Google rejected Android Management access; verify the API is enabled and service-account permissions");
     }
+    if (apiResponse.status === 404) throw new HttpError(404, "Android Management resource not found");
+    if (apiResponse.status === 409) throw new HttpError(409, "Android Management rejected a duplicate or already-used resource");
+    if (apiResponse.status === 400) throw new HttpError(400, "Android Management rejected the request");
     throw new HttpError(502, `Android Management request failed (HTTP ${apiResponse.status})`);
   }
   return apiResponse.json() as Promise<Record<string, unknown>>;
+}
+
+function isAndroidEnterpriseName(value: string) {
+  return /^enterprises\/[A-Za-z0-9_-]+$/.test(value);
+}
+
+function defaultAndroidPolicyName(enterpriseName: string) {
+  return `${enterpriseName}/policies/default`;
+}
+
+function androidEnrollmentTokenRef(id: string) {
+  return getFirestoreDb().collection(ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION).doc(id);
+}
+
+async function getAndroidEnterpriseName() {
+  assertAndroidManagementReady();
+  if (isAndroidEnterpriseName(ANDROID_MANAGEMENT_ENTERPRISE_NAME)) return ANDROID_MANAGEMENT_ENTERPRISE_NAME;
+  const snapshot = await getFirestoreDb()
+    .collection(ANDROID_MANAGEMENT_COLLECTION)
+    .where("status", "==", "complete")
+    .orderBy("completedAt", "desc")
+    .limit(1)
+    .get();
+  const enterpriseName = clean(snapshot.docs[0]?.data()?.enterpriseName);
+  if (!isAndroidEnterpriseName(enterpriseName)) {
+    throw new HttpError(503, "No completed Android Management enterprise is configured");
+  }
+  return enterpriseName;
+}
+
+async function createOrUpdateDefaultAndroidPolicy() {
+  const enterpriseName = await getAndroidEnterpriseName();
+  const policyName = defaultAndroidPolicyName(enterpriseName);
+  // Deliberately minimal: no wipes, resets, app blocking, kiosk mode, or hardware restrictions.
+  const policy = await androidManagementRequest(`/${policyName}`, { name: policyName }, "PATCH");
+  return { ok: true, enterpriseName, policyName: clean(policy.name) || policyName, policy };
+}
+
+async function createAndroidEnrollmentToken() {
+  const enterpriseName = await getAndroidEnterpriseName();
+  const policyName = defaultAndroidPolicyName(enterpriseName);
+  // Ensure the token can never enroll a device without its policy attached.
+  await androidManagementRequest(`/${policyName}`, { name: policyName }, "PATCH");
+  const token = await androidManagementRequest(`/${enterpriseName}/enrollmentTokens`, {
+    policyName,
+    allowPersonalUsage: "PERSONAL_USAGE_DISALLOWED",
+    duration: "3600s",
+  });
+  const tokenName = clean(token.name);
+  const qrCode = clean(token.qrCode);
+  const expiresAt = clean(token.expirationTimestamp);
+  if (!/^enterprises\/[A-Za-z0-9_-]+\/enrollmentTokens\/[A-Za-z0-9_-]+$/.test(tokenName) || !qrCode || !expiresAt) {
+    throw new HttpError(502, "Android Management returned an incomplete enrollment token");
+  }
+  const id = randomBytes(18).toString("base64url");
+  const record: AndroidManagementEnrollmentTokenRecord = {
+    id,
+    enterpriseName,
+    policyName,
+    tokenName,
+    qrCode,
+    expiresAt,
+    createdAt: nowIso(),
+  };
+  await androidEnrollmentTokenRef(id).create(record);
+  return {
+    id,
+    enterpriseName,
+    policyName,
+    tokenName,
+    expiresAt,
+    qrCode,
+    qrImageUrl: `/api/android/enrollment-tokens/${id}/qr`,
+  };
+}
+
+async function sendAndroidEnrollmentQr(id: string, response: any) {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(id)) throw new HttpError(400, "Invalid enrollment token QR identifier");
+  const snapshot = await androidEnrollmentTokenRef(id).get();
+  if (!snapshot.exists) throw new HttpError(404, "Enrollment QR code not found");
+  const record = snapshot.data() as AndroidManagementEnrollmentTokenRecord;
+  if (!record.qrCode || Date.parse(record.expiresAt) <= Date.now()) {
+    throw new HttpError(410, "Enrollment QR code has expired; generate a new enrollment token");
+  }
+  const png = await QRCode.toBuffer(record.qrCode, {
+    type: "png",
+    width: 720,
+    margin: 3,
+    errorCorrectionLevel: "M",
+  });
+  sendBinary(response, 200, "image/png", png);
+}
+
+async function listAndroidManagementDevices() {
+  const enterpriseName = await getAndroidEnterpriseName();
+  const result = await androidManagementRequest(`/${enterpriseName}/devices?pageSize=100`, undefined, "GET");
+  const devices = Array.isArray(result.devices) ? result.devices : [];
+  return {
+    enterpriseName,
+    devices: devices.map((device: any) => ({
+      name: clean(device?.name),
+      state: clean(device?.state),
+      managementMode: clean(device?.managementMode),
+      policyName: clean(device?.policyName),
+      model: clean(device?.hardwareInfo?.model),
+      manufacturer: clean(device?.hardwareInfo?.manufacturer),
+      serialNumber: clean(device?.hardwareInfo?.serialNumber),
+      lastStatusReportTime: clean(device?.lastStatusReportTime),
+    })),
+    nextPageToken: clean(result.nextPageToken) || null,
+  };
 }
 
 async function createAndroidEnterpriseSignup() {
@@ -10756,6 +10940,7 @@ async function runSelfTest() {
   const dispatch = await dispatchPendingNotifications(state, 5);
   const ecosystem = getEcosystemSummary(state);
   const dashboard = renderDashboard();
+  const androidConsole = renderAndroidManagementConsole();
   const clientScript = renderClientScript();
   const sessionToken = createAdminSession(ADMIN_EMAIL);
   const session = getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(sessionToken)}` } });
@@ -10766,8 +10951,13 @@ async function runSelfTest() {
   if (getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=invalid-token` } })) throw new Error("Expected invalid admin session to fail");
   if (requiresAdminAuth("/api/android/callback")) throw new Error("Expected Android signup callback to bypass admin session gate");
   if (!requiresAdminAuth("/api/android/signup")) throw new Error("Expected Android signup initiation to require an admin session");
+  if (!requiresAdminAuth("/api/android/policies/default")) throw new Error("Expected Android policy changes to require an admin session");
+  if (!requiresAdminAuth("/api/android/enrollment-tokens/test/qr")) throw new Error("Expected enrollment QR access to require an admin session");
   if (!isValidAndroidSignupState(randomBytes(32).toString("base64url"))) throw new Error("Expected Android signup state to validate");
   if (isValidAndroidSignupState("invalid")) throw new Error("Expected malformed Android signup state to fail validation");
+  if (defaultAndroidPolicyName("enterprises/test-enterprise") !== "enterprises/test-enterprise/policies/default") throw new Error("Expected Android default policy name");
+  const qrSelfTest = await QRCode.toBuffer("{\"test\":true}", { type: "png", width: 160 });
+  if (!qrSelfTest.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error("Expected enrollment QR PNG");
   if (policy.contractId !== state.contracts[0].id) throw new Error("Expected device policy for first contract");
   if (!policy.allowedPaymentPackages.length) throw new Error("Expected device policy payment app allowlist");
   if (prematureAck.length) throw new Error("Expected device command to wait for applied command ids");
@@ -10776,6 +10966,7 @@ async function runSelfTest() {
   if (dispatch.sent < 1) throw new Error("Expected notification dispatch to process queued notices");
   if (!ecosystem.deviceEvents) throw new Error("Expected device event summary");
   if (!dashboard.includes("/assets/app.js")) throw new Error("Expected dashboard to load generated client script");
+  if (!androidConsole.includes("/api/android/enrollment-tokens")) throw new Error("Expected Android enrollment console");
   if (!clientScript.includes("/api/automation/run")) throw new Error("Expected client script to run automation API");
   if (!clientScript.includes("Device Sync Log")) throw new Error("Expected ecosystem UI in client script");
   if (!clientScript.includes("/api/state")) throw new Error("Expected client script to use backend API");

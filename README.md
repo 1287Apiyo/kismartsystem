@@ -281,6 +281,8 @@ FIREBASE_SERVICE_ACCOUNT_JSON={...service account JSON...}
 KISMART_ANDROID_MANAGEMENT_PROJECT_ID=kismart-456ee
 KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON={...service account JSON...}
 KISMART_ANDROID_MANAGEMENT_COLLECTION=androidManagementSignups
+KISMART_ANDROID_MANAGEMENT_ENTERPRISE_NAME=enterprises/LC02gc2548
+KISMART_ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION=androidManagementEnrollmentTokens
 ```
 
 `KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON` can be omitted only if
@@ -292,6 +294,27 @@ logs, Git, or a callback URL other than Google's redirect.
 
 Vercel no longer packages local service-account files; configure the Firebase and Android
 Management credential JSON values in Vercel's encrypted environment variables before deploying.
+
+After the enterprise exists, Android Management admin APIs are available only to a signed-in
+KISMART administrator:
+
+```text
+POST /api/android/policies/default
+POST /api/android/enrollment-tokens
+GET  /api/android/enrollment-tokens/:id/qr
+GET  /api/android/devices
+```
+
+`POST /api/android/policies/default` creates/updates `policies/default` with a deliberately
+minimal test policy. It contains no factory-reset, wipe, kiosk, app-blocking, or hardware
+restriction settings. `POST /api/android/enrollment-tokens` first ensures that policy exists,
+then creates a one-hour fully-managed company-owned enrollment token. Its response contains the
+Google-provided `qrCode` payload and a same-origin `qrImageUrl`; open that image while signed in
+to display a locally generated PNG QR code. Do not share the token response or QR image publicly.
+
+For a test device: back up the device, factory reset it, proceed through initial Android setup,
+open QR provisioning at the welcome screen, and scan the displayed QR image. Android Device
+Policy downloads during provisioning. Confirm the enrolled phone through `GET /api/android/devices`.
 
 - Set `KISMART_CALLBACK_SECRET` before exposing mobile-money callback URLs publicly.
 - Set `KISMART_DEVICE_SYNC_SECRET` before exposing device policy, sync, or tamper routes publicly.
