@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 // Reconnected to Firestore for kismart-456ee
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, createSign, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -191,6 +191,19 @@ interface AuditRecord {
   record: string;
 }
 
+type AndroidEnterpriseSignupStatus = "pending" | "creating" | "complete" | "failed";
+
+interface AndroidEnterpriseSignupTransaction {
+  stateHash: string;
+  signupUrlName: string;
+  status: AndroidEnterpriseSignupStatus;
+  createdAt: string;
+  expiresAt: string;
+  completedAt?: string;
+  enterpriseName?: string;
+  failureCode?: string;
+}
+
 interface WarningStage {
   name: string;
   daysAfterDue: number;
@@ -307,6 +320,20 @@ const SUPABASE_OPERATION_TIMEOUT_MS = numberFrom(
 const FIREBASE_PROJECT_ID = clean(process.env.FIREBASE_PROJECT_ID || "kismart-456ee").replace(/^\uFEFF/, "");
 const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
 const FIREBASE_SERVICE_ACCOUNT_JSON = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+
+// Android Management is deliberately configured server-side. The Firebase service account may
+// be reused only when it has been granted Android Management API access in this Cloud project.
+const ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON = process.env.KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON || FIREBASE_SERVICE_ACCOUNT_JSON;
+
+const ANDROID_MANAGEMENT_PROJECT_ID = clean(process.env.KISMART_ANDROID_MANAGEMENT_PROJECT_ID || FIREBASE_PROJECT_ID);
+
+const ANDROID_MANAGEMENT_COLLECTION = clean(process.env.KISMART_ANDROID_MANAGEMENT_COLLECTION || "androidManagementSignups");
+
+const ANDROID_MANAGEMENT_SCOPE = "https://www.googleapis.com/auth/androidmanagement";
+
+const ANDROID_MANAGEMENT_API = "https://androidmanagement.googleapis.com/v1";
+
+const ANDROID_MANAGEMENT_SIGNUP_TTL_MS = 30 * 60 * 1000;
 const FIREBASE_STORAGE_BUCKET = clean(process.env.KISMART_FIREBASE_STORAGE_BUCKET || `${FIREBASE_PROJECT_ID}.firebasestorage.app`);
 // RTDB is the live control plane. Firestore remains the durable record store.
 const REALTIME_DATABASE_URL = clean(
@@ -696,8 +723,21 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  // This is the only Android Management endpoint outside the normal admin-session
+  // gate. It validates a short-lived, one-time state stored in Firestore instead.
+  if (method === "GET" && url.pathname === "/api/android/callback") {
+    await handleAndroidEnterpriseCallback(url, response);
+    return;
+  }
+
   if (url.pathname.startsWith("/api/") && requiresAdminAuth(url.pathname)) {
     assertAdminSession(request);
+  }
+
+  if (method === "POST" && url.pathname === "/api/android/signup") {
+    const signup = await createAndroidEnterpriseSignup();
+    sendJson(response, 201, signup);
+    return;
   }
 
   if (method === "GET" && url.pathname === "/api/events") {
@@ -2214,8 +2254,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--ink); box-shadow
 .btn.secondary { color: var(--ink); background: #ffffff; border-color: var(--ink); }
 .btn.signout-btn { color: #ffffff; background: #b42323; border-color: #b42323; }
 .btn.signout-btn:hover { background: #941b1b; border-color: #941b1b; }
-.btn:disabled, .tiny:disabled, .btn.busy, .tiny.busy { opacity: .58; cursor: wait; }
-.btn[type="submit"]:disabled, #contractSaveButton:disabled { color: #ffffff; background: #8b8b82; border-color: #8b8b82; opacity: 1; }
+.btn:disabled, .tiny:disabled, .btn.busy, .tiny.busy { opacity: .58; cursor: wait; }
+.btn[type="submit"]:disabled, #contractSaveButton:disabled { color: #ffffff; background: #8b8b82; border-color: #8b8b82; opacity: 1; }
 .landing-actions .btn.secondary { color: #101415; background: #ffffff; border-color: #cdd5cf; }
 .tiny { min-height: 30px; border: 1px solid var(--ink); padding: 5px 9px; color: var(--ink); background: var(--surface-2); font-size: 12px; }
 .tiny[data-action="remind"], .tiny[data-action="warn"] { border-color: var(--accent); background: var(--accent); }
@@ -4956,15 +4996,15 @@ label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weig
 /* Contract detail page */
 .cd-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .cd-top-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; border: 1px solid #d5e0d9; border-radius: 12px; color: #14201a; background: #ffffff; box-shadow: none; }
-.cd-hero-main { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.cd-avatar { display: grid; place-items: center; width: 54px; height: 54px; flex: 0 0 54px; border: 1px solid #d5e0d9; border-radius: 12px; background: #f4f7f5; color: #0d6b45; font-size: 20px; font-weight: 700; letter-spacing: .02em; }
-.cd-hero-eyebrow { margin: 0; color: #5a6b62; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
-.cd-hero h2 { margin: 5px 0 0; color: #14201a; font-size: 24px; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
-.cd-hero-meta { margin: 7px 0 0; color: #6f7a75; font-size: 13px; }
-.cd-hero-badges { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 12px; border: 1px solid #d5e0d9; border-radius: 999px; background: #ffffff; color: #14201a; font-size: 12px; font-weight: 650; white-space: nowrap; }
-.cd-chip.soft { border-color: #d5e0d9; background: #f4f7f5; color: #5a6b62; }
+.cd-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; border: 1px solid #d5e0d9; border-radius: 12px; color: #14201a; background: #ffffff; box-shadow: none; }
+.cd-hero-main { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.cd-avatar { display: grid; place-items: center; width: 54px; height: 54px; flex: 0 0 54px; border: 1px solid #d5e0d9; border-radius: 12px; background: #f4f7f5; color: #0d6b45; font-size: 20px; font-weight: 700; letter-spacing: .02em; }
+.cd-hero-eyebrow { margin: 0; color: #5a6b62; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.cd-hero h2 { margin: 5px 0 0; color: #14201a; font-size: 24px; line-height: 1.1; font-weight: 700; overflow-wrap: anywhere; }
+.cd-hero-meta { margin: 7px 0 0; color: #6f7a75; font-size: 13px; }
+.cd-hero-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 12px; border: 1px solid #d5e0d9; border-radius: 999px; background: #ffffff; color: #14201a; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.cd-chip.soft { border-color: #d5e0d9; background: #f4f7f5; color: #5a6b62; }
 .cd-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .cd-kpi { position: relative; overflow: hidden; padding: 16px 18px; border: 1px solid #d5e0d9; border-radius: 12px; background: #ffffff; box-shadow: 0 6px 18px rgba(13, 31, 23, .04); }
 .cd-kpi::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: #8b8b82; opacity: .5; }
@@ -5629,7 +5669,7 @@ function renderRegister() {
   })).join("");
   app.innerHTML = [
     '<div class="layout">',
-    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields. After saving, print the payment plan agreement from Contracts.</p></div><button class="btn" id="contractSaveButton" form="contractForm" type="submit">Save Contract</button></div>',
+    '<section class="panel"><div class="panel-head"><div><h2>Quick Registration</h2><p>Use customer intake, product presets, and payment templates to create the contract with fewer manual fields. After saving, print the payment plan agreement from Contracts.</p></div><button class="btn" id="contractSaveButton" form="contractForm" type="submit">Save Contract</button></div>',
     '<form id="contractForm">',
     '<input name="intakeId" type="hidden">',
     '<input name="inventoryDeviceId" type="hidden">',
@@ -5644,7 +5684,7 @@ function renderRegister() {
     field("Alternative contact phone", "altContactPhone", "text", false),
     field("Relationship to customer", "relationship", "text", false),
     selectField("Branch", "branch", ["Kisumu", "Nairobi", "Mobile sales"]),
-    '<label class="form-wide">ID document <input name="idDocument" type="file"><small>Any file format · up to 6 MB · stored privately in Firebase Storage.</small></label>',
+    '<label class="form-wide">ID document <input name="idDocument" type="file"><small>Any file format · up to 6 MB · stored privately in Firebase Storage.</small></label>',
     '<div class="form-section form-wide"><strong>Device</strong><span>Select a saved stock phone or type the device details manually.</span></div>',
     '<label>Device preset<select name="devicePreset">' + deviceOptions().map(function (item) { return '<option value="' + e(item.id) + '">' + e(item.label) + '</option>'; }).join("") + '</select></label>',
     field("Device model", "deviceModel", "text", true),
@@ -5877,50 +5917,50 @@ function cleanSerialText(value) {
   return String(value || "").replace(/\s+/g, "").toUpperCase();
 }
 
-function cleanPhoneText(value) {
-  return String(value || "").replace(/[^\d+]/g, "");
-}
-
-function fileToBase64(file) {
-  return new Promise(function (resolve, reject) {
-    const reader = new FileReader();
-    reader.onload = function () {
-      resolve(String(reader.result || "").split(",").pop() || "");
-    };
-    reader.onerror = function () {
-      reject(new Error("Could not read the selected ID document"));
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function submitContract(event) {
-  event.preventDefault();
-  const saveButton = document.getElementById("contractSaveButton");
-  const originalSaveLabel = saveButton ? saveButton.textContent : "Save Contract";
-  if (saveButton) {
-    saveButton.disabled = true;
-    saveButton.classList.add("busy");
-    saveButton.textContent = "Saving…";
-  }
-  try {
-    syncInventoryDeviceSelection(event.target);
+function cleanPhoneText(value) {
+  return String(value || "").replace(/[^\d+]/g, "");
+}
+
+function fileToBase64(file) {
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      resolve(String(reader.result || "").split(",").pop() || "");
+    };
+    reader.onerror = function () {
+      reject(new Error("Could not read the selected ID document"));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function submitContract(event) {
+  event.preventDefault();
+  const saveButton = document.getElementById("contractSaveButton");
+  const originalSaveLabel = saveButton ? saveButton.textContent : "Save Contract";
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.classList.add("busy");
+    saveButton.textContent = "Saving…";
+  }
+  try {
+    syncInventoryDeviceSelection(event.target);
     const formData = new FormData(event.target);
     const documentFile = formData.get("idDocument");
     formData.delete("idDocument");
     const body = Object.fromEntries(formData.entries());
     body.role = role.value;
-    let result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
+    let result = await api("/api/contracts", { method: "POST", body: JSON.stringify(body) });
     clearFormDraft(event.target);
     // Optimistically prepend the saved contract so the UI reflects it immediately
     if (result && result.id) {
       if (documentFile instanceof File && documentFile.size) {
-        if (documentFile.size > 6 * 1024 * 1024) throw new Error("ID document must be no larger than 6 MB");
-        const dataBase64 = await fileToBase64(documentFile);
-        result = await api("/api/contracts/" + encodeURIComponent(result.id) + "/id-document", {
-          method: "POST",
-          body: JSON.stringify({ role: role.value, fileName: documentFile.name, contentType: documentFile.type, dataBase64: dataBase64 })
-        });
+        if (documentFile.size > 6 * 1024 * 1024) throw new Error("ID document must be no larger than 6 MB");
+        const dataBase64 = await fileToBase64(documentFile);
+        result = await api("/api/contracts/" + encodeURIComponent(result.id) + "/id-document", {
+          method: "POST",
+          body: JSON.stringify({ role: role.value, fileName: documentFile.name, contentType: documentFile.type, dataBase64: dataBase64 })
+        });
       }
       state.contracts = state.contracts.filter(function (c) { return c.id !== result.id; });
       state.contracts.unshift(result);
@@ -5931,17 +5971,17 @@ async function submitContract(event) {
     }
     showToast("Contract saved");
     await load();
-  } catch (error) {
-    showToast(error.message);
-    if (saveButton) {
-      saveButton.disabled = false;
-      saveButton.classList.remove("busy");
-      saveButton.textContent = originalSaveLabel;
-    }
-  }
-}
-
-async function submitInventoryDevice(event) {
+  } catch (error) {
+    showToast(error.message);
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.classList.remove("busy");
+      saveButton.textContent = originalSaveLabel;
+    }
+  }
+}
+
+async function submitInventoryDevice(event) {
   event.preventDefault();
   try {
     const body = Object.fromEntries(new FormData(event.target).entries());
@@ -7035,9 +7075,9 @@ function safeDocumentName(value: unknown) {
   return name || "identity-document";
 }
 
-async function uploadContractIdDocument(contractId: string, body: any) {
-  const name = safeDocumentName(body.fileName);
-  const contentType = clean(body.contentType).toLowerCase() || "application/octet-stream";
+async function uploadContractIdDocument(contractId: string, body: any) {
+  const name = safeDocumentName(body.fileName);
+  const contentType = clean(body.contentType).toLowerCase() || "application/octet-stream";
   const encoded = clean(body.dataBase64).replace(/^data:[^;]+;base64,/, "");
   if (!encoded) throw new HttpError(400, "Choose an ID document to upload");
   const buffer = Buffer.from(encoded, "base64");
@@ -9762,6 +9802,7 @@ function requiresAdminAuth(pathname: string) {
   if (pathname === "/api/health") return false;
   if (pathname.startsWith("/api/auth/")) return false;
   if (pathname.startsWith("/api/devices/")) return false;
+  if (pathname === "/api/android/callback") return false;
   // Payment provider callbacks must be reachable without an admin session.
   if (
     pathname === "/api/payments/mpesa-callback" ||
@@ -9771,6 +9812,172 @@ function requiresAdminAuth(pathname: string) {
     return false;
   }
   return true;
+}
+
+function androidManagementCallbackBaseUrl() {
+  const callbackUrl = `${PUBLIC_BASE_URL.replace(/\/$/, "")}/api/android/callback`;
+  if (!callbackUrl.startsWith("https://")) {
+    throw new HttpError(503, "Android Management requires KISMART_PUBLIC_BASE_URL to be an HTTPS URL");
+  }
+  return callbackUrl;
+}
+
+function androidManagementTransactionRef(stateHash: string) {
+  return getFirestoreDb().collection(ANDROID_MANAGEMENT_COLLECTION).doc(stateHash);
+}
+
+function assertAndroidManagementReady() {
+  if (!ANDROID_MANAGEMENT_PROJECT_ID) {
+    throw new HttpError(503, "Android Management project ID is not configured");
+  }
+  if (!isFirestoreStorage()) {
+    throw new HttpError(503, "Android Management signup requires Firestore durable storage");
+  }
+  androidManagementCallbackBaseUrl();
+}
+
+function androidManagementServiceAccount() {
+  const raw = ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON;
+  if (!raw) {
+    throw new HttpError(503, "Android Management service-account credentials are not configured");
+  }
+  try {
+    const credentials = JSON.parse(raw);
+    if (!clean(credentials?.client_email) || !clean(credentials?.private_key)) {
+      throw new Error("missing service-account fields");
+    }
+    return credentials as { client_email: string; private_key: string };
+  } catch {
+    throw new HttpError(503, "Android Management service-account credentials are invalid");
+  }
+}
+
+async function getAndroidManagementAccessToken() {
+  const credentials = androidManagementServiceAccount();
+  const now = Math.floor(Date.now() / 1000);
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const signed = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({
+    iss: credentials.client_email,
+    scope: ANDROID_MANAGEMENT_SCOPE,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(signed);
+  signer.end();
+  const assertion = `${signed}.${signer.sign(credentials.private_key, "base64url")}`;
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!tokenResponse.ok) {
+    throw new HttpError(502, "Google credential exchange failed; verify the service account and Android Management API access");
+  }
+  const token = await tokenResponse.json() as { access_token?: string };
+  if (!clean(token.access_token)) {
+    throw new HttpError(502, "Google credential exchange returned no access token");
+  }
+  return token.access_token as string;
+}
+
+async function androidManagementRequest(path: string, body: Record<string, unknown>) {
+  const accessToken = await getAndroidManagementAccessToken();
+  const apiResponse = await fetch(`${ANDROID_MANAGEMENT_API}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!apiResponse.ok) {
+    if ([400, 404, 409].includes(apiResponse.status)) {
+      throw new HttpError(409, "The Android enterprise signup token is invalid, expired, or already used. Start a new signup.");
+    }
+    if ([401, 403].includes(apiResponse.status)) {
+      throw new HttpError(502, "Google rejected Android Management access; verify the API is enabled and service-account permissions");
+    }
+    throw new HttpError(502, `Android Management request failed (HTTP ${apiResponse.status})`);
+  }
+  return apiResponse.json() as Promise<Record<string, unknown>>;
+}
+
+async function createAndroidEnterpriseSignup() {
+  assertAndroidManagementReady();
+  const state = randomBytes(32).toString("base64url");
+  const stateHash = createHash("sha256").update(state).digest("hex");
+  const callbackUrl = `${androidManagementCallbackBaseUrl()}?state=${encodeURIComponent(state)}`;
+  const signup = await androidManagementRequest(`/signupUrls?projectId=${encodeURIComponent(ANDROID_MANAGEMENT_PROJECT_ID)}`, { callbackUrl });
+  const signupUrl = clean(signup.url);
+  const signupUrlName = clean(signup.name);
+  if (!signupUrl.startsWith("https://") || !/^signupUrls\/[A-Za-z0-9_-]+$/.test(signupUrlName)) {
+    throw new HttpError(502, "Android Management returned an invalid signup URL");
+  }
+  const transaction: AndroidEnterpriseSignupTransaction = {
+    stateHash,
+    signupUrlName,
+    status: "pending",
+    createdAt: nowIso(),
+    expiresAt: new Date(Date.now() + ANDROID_MANAGEMENT_SIGNUP_TTL_MS).toISOString(),
+  };
+  await androidManagementTransactionRef(stateHash).create(transaction);
+  return { signupUrl, expiresAt: transaction.expiresAt };
+}
+
+async function handleAndroidEnterpriseCallback(url: URL, response: any) {
+  const state = clean(url.searchParams.get("state"));
+  const enterpriseToken = clean(url.searchParams.get("enterpriseToken"));
+  if (!isValidAndroidSignupState(state) || !enterpriseToken || enterpriseToken.length > 4096) {
+    throw new HttpError(400, "Invalid Android enterprise signup callback");
+  }
+  assertAndroidManagementReady();
+  const stateHash = createHash("sha256").update(state).digest("hex");
+  const transactionRef = androidManagementTransactionRef(stateHash);
+  const claim = await getFirestoreDb().runTransaction(async (transaction: any) => {
+    const snapshot = await transaction.get(transactionRef);
+    if (!snapshot.exists) return { status: "invalid" as const };
+    const record = snapshot.data() as AndroidEnterpriseSignupTransaction;
+    if (!safeEqual(record.stateHash, stateHash) || Date.parse(record.expiresAt) <= Date.now()) return { status: "invalid" as const };
+    if (record.status === "complete") return { status: "complete" as const, enterpriseName: clean(record.enterpriseName) };
+    if (record.status !== "pending") return { status: "busy" as const };
+    transaction.update(transactionRef, { status: "creating", processingStartedAt: nowIso() });
+    return { status: "claimed" as const, signupUrlName: record.signupUrlName };
+  });
+  if (claim.status === "invalid") throw new HttpError(400, "This Android enterprise signup link is invalid or expired");
+  if (claim.status === "complete") {
+    sendJson(response, 200, { ok: true, duplicate: true, enterpriseName: claim.enterpriseName });
+    return;
+  }
+  if (claim.status === "busy") throw new HttpError(409, "This Android enterprise signup is already being processed");
+
+  try {
+    const enterprise = await androidManagementRequest(
+      `/enterprises?projectId=${encodeURIComponent(ANDROID_MANAGEMENT_PROJECT_ID)}&signupUrlName=${encodeURIComponent(claim.signupUrlName)}&enterpriseToken=${encodeURIComponent(enterpriseToken)}`,
+      {}
+    );
+    const enterpriseName = clean(enterprise.name);
+    if (!/^enterprises\/[A-Za-z0-9_-]+$/.test(enterpriseName)) {
+      throw new HttpError(502, "Android Management returned an invalid enterprise resource name");
+    }
+    await transactionRef.update({ status: "complete", enterpriseName, completedAt: nowIso() });
+    sendJson(response, 200, { ok: true, enterpriseName });
+  } catch (error) {
+    await transactionRef.update({
+      status: "failed",
+      failedAt: nowIso(),
+      failureCode: error instanceof HttpError ? String(error.statusCode) : "unknown",
+    }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function isValidAndroidSignupState(value: string) {
+  return /^[A-Za-z0-9_-]{40,100}$/.test(value);
 }
 
 async function readBody(request: any) {
@@ -10549,6 +10756,10 @@ async function runSelfTest() {
   if (!Array.isArray(automation.actions)) throw new Error("Expected automation action list");
   if (session?.email !== ADMIN_EMAIL) throw new Error("Expected signed admin session to verify");
   if (getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=invalid-token` } })) throw new Error("Expected invalid admin session to fail");
+  if (requiresAdminAuth("/api/android/callback")) throw new Error("Expected Android signup callback to bypass admin session gate");
+  if (!requiresAdminAuth("/api/android/signup")) throw new Error("Expected Android signup initiation to require an admin session");
+  if (!isValidAndroidSignupState(randomBytes(32).toString("base64url"))) throw new Error("Expected Android signup state to validate");
+  if (isValidAndroidSignupState("invalid")) throw new Error("Expected malformed Android signup state to fail validation");
   if (policy.contractId !== state.contracts[0].id) throw new Error("Expected device policy for first contract");
   if (!policy.allowedPaymentPackages.length) throw new Error("Expected device policy payment app allowlist");
   if (prematureAck.length) throw new Error("Expected device command to wait for applied command ids");

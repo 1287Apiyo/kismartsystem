@@ -254,6 +254,45 @@ Admin **Restore** is sticky: automatic arrears limiting will not immediately re-
 
 ## Production Notes
 
+### Android Management enterprise signup
+
+The Android Management API flow is intentionally split into an authenticated start
+request and a public, one-time Google callback:
+
+1. Sign in to the KISMART admin dashboard and `POST /api/android/signup`.
+2. Open the returned `signupUrl` and complete the Google administrator consent flow.
+3. Google redirects to `https://www.kismartglobal.com/api/android/callback?state=...&enterpriseToken=...`.
+4. The callback verifies the short-lived state record in Firestore, then calls
+   `enterprises.create` using the matching server-stored `signupUrlName`. The returned
+   `enterprises/...` resource name is stored in the configured
+   `androidManagementSignups` Firestore collection.
+
+The callback never relies on a KISMART browser session. It is instead restricted to a
+single 30-minute state issued by an authenticated administrator, and its Firestore
+transaction prevents concurrent or replayed enterprise creation. Do not use an old
+signup URL or manually call the callback with a token.
+
+Set these Vercel Production environment variables:
+
+```text
+KISMART_STORAGE=firestore
+KISMART_PUBLIC_BASE_URL=https://www.kismartglobal.com
+FIREBASE_SERVICE_ACCOUNT_JSON={...service account JSON...}
+KISMART_ANDROID_MANAGEMENT_PROJECT_ID=kismart-456ee
+KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON={...service account JSON...}
+KISMART_ANDROID_MANAGEMENT_COLLECTION=androidManagementSignups
+```
+
+`KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON` can be omitted only if
+`FIREBASE_SERVICE_ACCOUNT_JSON` holds the same service account. Grant that service
+account the Android Management API permissions required to create signup URLs and
+enterprises, and enable the Android Management API in project `kismart-456ee`.
+Never put the JSON credential, enterprise token, or OAuth access token in browser code,
+logs, Git, or a callback URL other than Google's redirect.
+
+Vercel no longer packages local service-account files; configure the Firebase and Android
+Management credential JSON values in Vercel's encrypted environment variables before deploying.
+
 - Set `KISMART_CALLBACK_SECRET` before exposing mobile-money callback URLs publicly.
 - Set `KISMART_DEVICE_SYNC_SECRET` before exposing device policy, sync, or tamper routes publicly.
 - Set `KISMART_PUBLIC_BASE_URL` to the HTTPS origin phones should use from any network.
