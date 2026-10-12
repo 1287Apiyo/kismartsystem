@@ -740,6 +740,14 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  // Browser-friendly, admin-session-protected entry point for the same one-time
+  // signup flow. This route remains behind the global API admin-auth gate above.
+  if (method === "GET" && url.pathname === "/api/android/signup") {
+    const signup = await createAndroidEnterpriseSignup();
+    sendRedirect(response, signup.signupUrl);
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/api/events") {
     openEventStream(request, response);
     return;
