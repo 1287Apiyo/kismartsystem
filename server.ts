@@ -690,6 +690,10 @@ const ANDROID_MANAGEMENT_ENTERPRISE_NAME = clean(process.env.KISMART_ANDROID_MAN
 
 const ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION = clean(process.env.KISMART_ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION || "androidManagementEnrollmentTokens");
 
+// Set only after the signed KISMART app has been published as a private Managed Google Play app.
+// Keeping it empty preserves the deliberately app-free test policy.
+const ANDROID_MANAGEMENT_AGENT_PACKAGE = clean(process.env.KISMART_ANDROID_MANAGEMENT_AGENT_PACKAGE);
+
 
 
 const ANDROID_MANAGEMENT_SCOPE = "https://www.googleapis.com/auth/androidmanagement";
@@ -20157,8 +20161,22 @@ async function createOrUpdateDefaultAndroidPolicy() {
   const policyName = defaultAndroidPolicyName(enterpriseName);
 
   // Deliberately minimal: no wipes, resets, app blocking, kiosk mode, or hardware restrictions.
+  // Once the signed agent is available in this enterprise's Managed Google Play, it is the only
+  // app that can be force-installed. The managed configuration prevents it from requesting a
+  // competing legacy Device Admin role on an Android Management device.
+  const policyBody: Record<string, any> = { name: policyName };
+  if (ANDROID_MANAGEMENT_AGENT_PACKAGE) {
+    if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/.test(ANDROID_MANAGEMENT_AGENT_PACKAGE)) {
+      throw new HttpError(500, "KISMART_ANDROID_MANAGEMENT_AGENT_PACKAGE is not a valid Android package name");
+    }
+    policyBody.applications = [{
+      packageName: ANDROID_MANAGEMENT_AGENT_PACKAGE,
+      installType: "FORCE_INSTALLED",
+      managedConfiguration: { kismart_android_management: true },
+    }];
+  }
 
-  const policy = await androidManagementRequest(`/${policyName}`, { name: policyName }, "PATCH");
+  const policy = await androidManagementRequest(`/${policyName}`, policyBody, "PATCH");
 
   return { ok: true, enterpriseName, policyName: clean(policy.name) || policyName, policy };
 
@@ -20172,9 +20190,8 @@ async function createAndroidEnrollmentToken() {
 
   const policyName = defaultAndroidPolicyName(enterpriseName);
 
-  // Ensure the token can never enroll a device without its policy attached.
-
-  await androidManagementRequest(`/${policyName}`, { name: policyName }, "PATCH");
+  // Ensure the token can never enroll a device without its current policy attached.
+  await createOrUpdateDefaultAndroidPolicy();
 
   const token = await androidManagementRequest(`/${enterpriseName}/enrollmentTokens`, {
 

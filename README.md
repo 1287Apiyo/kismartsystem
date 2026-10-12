@@ -283,6 +283,8 @@ KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON={...service account JSON...}
 KISMART_ANDROID_MANAGEMENT_COLLECTION=androidManagementSignups
 KISMART_ANDROID_MANAGEMENT_ENTERPRISE_NAME=enterprises/LC02gc2548
 KISMART_ANDROID_MANAGEMENT_ENROLLMENT_COLLECTION=androidManagementEnrollmentTokens
+# Set only after publishing the signed KISMART APK/AAB as a private Managed Google Play app.
+KISMART_ANDROID_MANAGEMENT_AGENT_PACKAGE=africa.volo.kismart.agent
 ```
 
 `KISMART_ANDROID_MANAGEMENT_SERVICE_ACCOUNT_JSON` can be omitted only if
@@ -311,6 +313,13 @@ restriction settings. `POST /api/android/enrollment-tokens` first ensures that p
 then creates a one-hour fully-managed company-owned enrollment token. Its response contains the
 Google-provided `qrCode` payload and a same-origin `qrImageUrl`; open that image while signed in
 to display a locally generated PNG QR code. Do not share the token response or QR image publicly.
+
+To force-install the KISMART agent, first publish its signed APK or AAB as a private app that is
+available to this enterprise in Managed Google Play. Then set
+`KISMART_ANDROID_MANAGEMENT_AGENT_PACKAGE=africa.volo.kismart.agent` in Vercel and run
+**Create test policy** again. The policy force-installs only that app and supplies its
+`kismart_android_management` managed configuration; it does not enable kiosk, wipe, reset, or
+hardware restrictions.
 
 For a test device: back up the device, factory reset it, proceed through initial Android setup,
 open QR provisioning at the welcome screen, and scan the displayed QR image. Android Device
