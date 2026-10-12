@@ -736,6 +736,11 @@ async function routeRequest(request: any, response: any) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/assets/android-enrollment.js") {
+    sendText(response, 200, "text/javascript; charset=utf-8", renderAndroidEnrollmentScript());
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, {
       ok: true,
@@ -2010,13 +2015,66 @@ function renderAndroidManagementConsole() {
 <section class="panel"><div class="panel-head"><div><h1>Android test-device enrollment</h1><p>Create a minimal policy, then generate a one-hour QR code for one factory-reset company device.</p></div></div>
 <div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="createPolicy">Create test policy</button><button class="btn" id="createToken">Generate enrollment QR</button><button class="btn secondary" id="refreshDevices">Refresh enrolled devices</button></div>
 <p id="status" role="status" style="margin-top:18px"></p><div id="qr" style="margin-top:18px"></div><pre id="devices" style="white-space:pre-wrap;overflow:auto"></pre></section>
-</main><script>
-const status=document.getElementById('status'),qr=document.getElementById('qr'),devices=document.getElementById('devices');
-async function api(path,options){const r=await fetch(path,options);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.detail||d.error||'Request failed');return d}
-document.getElementById('createPolicy').onclick=async()=>{try{status.textContent='Creating test policy…';const d=await api('/api/android/policies/default',{method:'POST'});status.textContent='Policy ready: '+d.policyName}catch(e){status.textContent=e.message}};
-document.getElementById('createToken').onclick=async()=>{try{status.textContent='Generating QR…';const d=await api('/api/android/enrollment-tokens',{method:'POST'});status.textContent='QR expires: '+d.expiresAt;qr.replaceChildren();const title=document.createElement('p');title.textContent='Scan this only on the factory-reset test device:';const image=document.createElement('img');image.src=d.qrImageUrl;image.width=420;image.height=420;image.alt='Android enrollment QR code';qr.append(title,image)}catch(e){status.textContent=e.message}};
-document.getElementById('refreshDevices').onclick=async()=>{try{status.textContent='Loading devices…';const d=await api('/api/android/devices');devices.textContent=JSON.stringify(d.devices,null,2);status.textContent=d.devices.length+' enrolled device(s)'}catch(e){status.textContent=e.message}};
-</script></body></html>`;
+</main><script src="/assets/android-enrollment.js"></script></body></html>`;
+}
+
+function renderAndroidEnrollmentScript() {
+  return `
+const status = document.getElementById('status');
+const qr = document.getElementById('qr');
+const devices = document.getElementById('devices');
+
+async function androidApi(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || body.error || 'Request failed');
+  return body;
+}
+
+function showAndroidError(error) {
+  status.textContent = error instanceof Error ? error.message : 'Request failed';
+}
+
+document.getElementById('createPolicy').addEventListener('click', async () => {
+  try {
+    status.textContent = 'Creating test policy…';
+    const policy = await androidApi('/api/android/policies/default', { method: 'POST' });
+    status.textContent = 'Policy ready: ' + policy.policyName;
+  } catch (error) {
+    showAndroidError(error);
+  }
+});
+
+document.getElementById('createToken').addEventListener('click', async () => {
+  try {
+    status.textContent = 'Generating QR…';
+    const token = await androidApi('/api/android/enrollment-tokens', { method: 'POST' });
+    status.textContent = 'QR expires: ' + token.expiresAt;
+    qr.replaceChildren();
+    const title = document.createElement('p');
+    title.textContent = 'Scan this only on the factory-reset test device:';
+    const image = document.createElement('img');
+    image.src = token.qrImageUrl;
+    image.width = 420;
+    image.height = 420;
+    image.alt = 'Android enrollment QR code';
+    qr.append(title, image);
+  } catch (error) {
+    showAndroidError(error);
+  }
+});
+
+document.getElementById('refreshDevices').addEventListener('click', async () => {
+  try {
+    status.textContent = 'Loading devices…';
+    const result = await androidApi('/api/android/devices');
+    devices.textContent = JSON.stringify(result.devices, null, 2);
+    status.textContent = result.devices.length + ' enrolled device(s)';
+  } catch (error) {
+    showAndroidError(error);
+  }
+});
+`;
 }
 
 function navItem(view: string, label: string, icon: string, active = false) {
@@ -10941,6 +10999,7 @@ async function runSelfTest() {
   const ecosystem = getEcosystemSummary(state);
   const dashboard = renderDashboard();
   const androidConsole = renderAndroidManagementConsole();
+  const androidEnrollmentScript = renderAndroidEnrollmentScript();
   const clientScript = renderClientScript();
   const sessionToken = createAdminSession(ADMIN_EMAIL);
   const session = getAdminSession({ headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(sessionToken)}` } });
@@ -10966,7 +11025,8 @@ async function runSelfTest() {
   if (dispatch.sent < 1) throw new Error("Expected notification dispatch to process queued notices");
   if (!ecosystem.deviceEvents) throw new Error("Expected device event summary");
   if (!dashboard.includes("/assets/app.js")) throw new Error("Expected dashboard to load generated client script");
-  if (!androidConsole.includes("/api/android/enrollment-tokens")) throw new Error("Expected Android enrollment console");
+  if (!androidConsole.includes("/assets/android-enrollment.js")) throw new Error("Expected Android enrollment console script");
+  if (!androidEnrollmentScript.includes("/api/android/enrollment-tokens")) throw new Error("Expected Android enrollment actions");
   if (!clientScript.includes("/api/automation/run")) throw new Error("Expected client script to run automation API");
   if (!clientScript.includes("Device Sync Log")) throw new Error("Expected ecosystem UI in client script");
   if (!clientScript.includes("/api/state")) throw new Error("Expected client script to use backend API");
