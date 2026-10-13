@@ -303,6 +303,7 @@ KISMART administrator:
 ```text
 POST /api/android/policies/default
 POST /api/android/enrollment-tokens
+POST /api/android/enrollment-tokens/work-profile
 GET  /api/android/enrollment-tokens/:id/qr
 GET  /api/android/devices
 ```
@@ -313,6 +314,11 @@ restriction settings. `POST /api/android/enrollment-tokens` first ensures that p
 then creates a one-hour fully-managed company-owned enrollment token. Its response contains the
 Google-provided `qrCode` payload and a same-origin `qrImageUrl`; open that image while signed in
 to display a locally generated PNG QR code. Do not share the token response or QR image publicly.
+
+`POST /api/android/enrollment-tokens/work-profile` creates a separate, one-hour Work Profile
+token for an already set-up Google-certified device. It deliberately uses
+`PERSONAL_USAGE_ALLOWED`, so it manages only the work profile—not the whole phone. Install and
+open Google's Android Device Policy app from Play Store, then scan this QR inside that app.
 
 To force-install the KISMART agent, first publish its signed APK or AAB as a private app that is
 available to this enterprise in Managed Google Play. Then set

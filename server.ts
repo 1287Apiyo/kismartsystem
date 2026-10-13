@@ -422,6 +422,8 @@ interface AndroidManagementEnrollmentTokenRecord {
 
   policyName: string;
 
+  enrollmentMode: "fully-managed" | "work-profile";
+
   tokenName: string;
 
   qrCode: string;
@@ -1577,6 +1579,16 @@ async function routeRequest(request: any, response: any) {
   if (method === "POST" && url.pathname === "/api/android/enrollment-tokens") {
 
     const enrollment = await createAndroidEnrollmentToken();
+
+    sendJson(response, 201, enrollment);
+
+    return;
+
+  }
+
+  if (method === "POST" && url.pathname === "/api/android/enrollment-tokens/work-profile") {
+
+    const enrollment = await createAndroidEnrollmentToken("work-profile");
 
     sendJson(response, 201, enrollment);
 
@@ -4030,9 +4042,9 @@ function renderAndroidManagementConsole() {
 
 <p><a class="btn secondary" href="/admin">← Back to dashboard</a></p>
 
-<section class="panel"><div class="panel-head"><div><h1>Android test-device enrollment</h1><p>Create a minimal policy, then generate a one-hour QR code for one factory-reset company device.</p></div></div>
+<section class="panel"><div class="panel-head"><div><h1>Android test-device enrollment</h1><p>Use the full-device QR only during first-time setup. The Work Profile QR is for an already set-up, Google-certified phone.</p></div></div>
 
-<div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="createPolicy">Create test policy</button><button class="btn" id="createToken">Generate enrollment QR</button><button class="btn secondary" id="refreshDevices">Refresh enrolled devices</button></div>
+<div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn" id="createPolicy">Create test policy</button><button class="btn" id="createToken">Full-device QR</button><button class="btn" id="createWorkProfileToken">Work Profile QR</button><button class="btn secondary" id="refreshDevices">Refresh enrolled devices</button></div>
 
 <p id="status" role="status" style="margin-top:18px"></p><div id="qr" style="margin-top:18px"></div><pre id="devices" style="white-space:pre-wrap;overflow:auto"></pre></section>
 
@@ -4110,7 +4122,7 @@ document.getElementById('createToken').addEventListener('click', async () => {
 
     const title = document.createElement('p');
 
-    title.textContent = 'Scan this only on the factory-reset test device:';
+    title.textContent = 'Full-device QR: scan only during initial setup on a factory-reset test device.';
 
     const image = document.createElement('img');
 
@@ -4130,6 +4142,25 @@ document.getElementById('createToken').addEventListener('click', async () => {
 
   }
 
+});
+
+document.getElementById('createWorkProfileToken').addEventListener('click', async () => {
+  try {
+    status.textContent = 'Generating Work Profile QR…';
+    const token = await androidApi('/api/android/enrollment-tokens/work-profile', { method: 'POST' });
+    status.textContent = 'Work Profile QR expires: ' + token.expiresAt;
+    qr.replaceChildren();
+    const title = document.createElement('p');
+    title.textContent = 'Work Profile QR: install Android Device Policy from Google Play, open it, then scan this code.';
+    const image = document.createElement('img');
+    image.src = token.qrImageUrl;
+    image.width = 420;
+    image.height = 420;
+    image.alt = 'Android Work Profile enrollment QR code';
+    qr.append(title, image);
+  } catch (error) {
+    showAndroidError(error);
+  }
 });
 
 
@@ -20184,7 +20215,7 @@ async function createOrUpdateDefaultAndroidPolicy() {
 
 
 
-async function createAndroidEnrollmentToken() {
+async function createAndroidEnrollmentToken(enrollmentMode: "fully-managed" | "work-profile" = "fully-managed") {
 
   const enterpriseName = await getAndroidEnterpriseName();
 
@@ -20197,7 +20228,7 @@ async function createAndroidEnrollmentToken() {
 
     policyName,
 
-    allowPersonalUsage: "PERSONAL_USAGE_DISALLOWED",
+    allowPersonalUsage: enrollmentMode === "work-profile" ? "PERSONAL_USAGE_ALLOWED" : "PERSONAL_USAGE_DISALLOWED",
 
     duration: "3600s",
 
@@ -20225,6 +20256,8 @@ async function createAndroidEnrollmentToken() {
 
     policyName,
 
+    enrollmentMode,
+
     tokenName,
 
     qrCode,
@@ -20244,6 +20277,8 @@ async function createAndroidEnrollmentToken() {
     enterpriseName,
 
     policyName,
+
+    enrollmentMode,
 
     tokenName,
 
@@ -22043,6 +22078,8 @@ async function runSelfTest() {
 
   if (!requiresAdminAuth("/api/android/enrollment-tokens/test/qr")) throw new Error("Expected enrollment QR access to require an admin session");
 
+  if (!requiresAdminAuth("/api/android/enrollment-tokens/work-profile")) throw new Error("Expected Work Profile enrollment to require an admin session");
+
   if (!isValidAndroidSignupState(randomBytes(32).toString("base64url"))) throw new Error("Expected Android signup state to validate");
 
   if (isValidAndroidSignupState("invalid")) throw new Error("Expected malformed Android signup state to fail validation");
@@ -22072,6 +22109,8 @@ async function runSelfTest() {
   if (!androidConsole.includes("/assets/android-enrollment.js")) throw new Error("Expected Android enrollment console script");
 
   if (!androidEnrollmentScript.includes("/api/android/enrollment-tokens")) throw new Error("Expected Android enrollment actions");
+
+  if (!androidEnrollmentScript.includes("/api/android/enrollment-tokens/work-profile")) throw new Error("Expected Work Profile enrollment action");
 
   if (!clientScript.includes("/api/automation/run")) throw new Error("Expected client script to run automation API");
 
