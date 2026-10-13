@@ -1,6 +1,6 @@
-# KISMART Global Installment Management System
+# KISMART Global Android Management Console
 
-TypeScript backend for managing phone installment contracts, payments, warnings, device restrictions, reports, and audit logs.
+TypeScript backend for authenticated Android Management API enterprise enrollment, policies, enrollment QR codes, and device visibility.
 
 ## Run Locally
 
@@ -91,6 +91,8 @@ Firestore storage uses top-level collections:
 - `settings/main`
 
 On first Firestore start, if these collections are empty, the backend migrates the existing local `data/kismart-state.json` state, the older single-document Firestore state, or the older nested `kismartApp/state` layout into these top-level collections automatically.
+
+<!-- LEGACY FINANCING / PAYMENT WORKFLOW — RETIRED, NOT EXPOSED AT RUNTIME.
 
 ## Phone SMS Setup
 
@@ -254,7 +256,9 @@ Admin **Restore** is sticky: automatic arrears limiting will not immediately re-
 
 ## Production Notes
 
-### Android Management enterprise signup
+-->
+
+## Android Management enterprise signup
 
 The Android Management API flow is intentionally split into an authenticated start
 request and a public, one-time Google callback:
@@ -331,6 +335,15 @@ For a test device: back up the device, factory reset it, proceed through initial
 open QR provisioning at the welcome screen, and scan the displayed QR image. Android Device
 Policy downloads during provisioning. Confirm the enrolled phone through `GET /api/android/devices`.
 
+## Verification
+
+```powershell
+npm run check
+npm run self-test
+```
+
+<!-- LEGACY FINANCING / PAYMENT NOTES — RETIRED.
+
 - Set `KISMART_CALLBACK_SECRET` before exposing mobile-money callback URLs publicly.
 - Set `KISMART_DEVICE_SYNC_SECRET` before exposing device policy, sync, or tamper routes publicly.
 - Set `KISMART_PUBLIC_BASE_URL` to the HTTPS origin phones should use from any network.
@@ -359,3 +372,4 @@ Policy downloads during provisioning. Confirm the enrolled phone through `GET /a
 - Role-based permission checks for sensitive actions
 - Administrator audit trail
 - Branch performance and investor snapshot
+-->
