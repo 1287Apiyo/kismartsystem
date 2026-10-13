@@ -614,12 +614,6 @@ const PORT = Number(process.env.KISMART_PORT || 8787);
 
 const VERSION = "1.3.1";
 
-// LEGACY FINANCING MODE IS RETIRED.
-// Keep the former installment implementation in this source file for an
-// auditable migration record, but do not expose or execute it. KISMART now
-// uses Android Management API for administrator-managed enterprise devices.
-const LEGACY_FINANCING_FEATURES_DISABLED = true;
-
 const SHOP_NAME = process.env.KISMART_SHOP_NAME || "KISMART Global";
 
 const CALLBACK_SECRET = process.env.KISMART_CALLBACK_SECRET || "";
@@ -1140,7 +1134,21 @@ async function routeRequest(request: any, response: any) {
 
       remoteReady: remoteStorageReady() || !process.env.VERCEL,
 
+      deviceSyncSecretConfigured: Boolean(DEVICE_SYNC_SECRET),
+
       firestoreError: isFirestoreStorage() ? null : firestoreLastError,
+
+      mpesaConfigured: MPESA_CONFIGURED,
+
+      mpesaTransactionType: MPESA_TRANSACTION_TYPE,
+
+      mpesaShortcode: PAYBILL_BUSINESS_NUMBER,
+
+      mpesaPartyB: MPESA_PARTY_B,
+
+      mpesaCallbackConfigured: Boolean(PAYBILL_CALLBACK_URL && PAYBILL_CALLBACK_URL.startsWith("https://")),
+
+      mpesaApiBase: MPESA_API_BASE_URL,
 
       time: nowIso(),
 
@@ -1154,7 +1162,7 @@ async function routeRequest(request: any, response: any) {
 
   if (method === "GET" && url.pathname === "/") {
 
-    sendRedirect(response, "/admin");
+    sendHtml(response, renderSaasLanding());
 
     return;
 
@@ -1172,7 +1180,7 @@ async function routeRequest(request: any, response: any) {
 
     }
 
-    sendHtml(response, renderAndroidManagementConsole());
+    sendHtml(response, renderDashboard());
 
     return;
 
@@ -1216,10 +1224,34 @@ async function routeRequest(request: any, response: any) {
 
 
 
-  // Legacy public customer intake is intentionally disabled with the former
-  // financing workflow. Do not reactivate it without a separate review.
-  if (LEGACY_FINANCING_FEATURES_DISABLED && url.pathname === "/intake") {
-    throw new HttpError(410, "Customer financing intake has been retired");
+  if (method === "GET" && url.pathname === "/intake") {
+
+    sendHtml(response, renderCustomerIntake());
+
+    return;
+
+  }
+
+
+
+  if (method === "POST" && url.pathname === "/intake") {
+
+    const body = await readForm(request);
+
+    const state = await loadState();
+
+    const intake = createIntakeFromForm(body);
+
+    validateIntakePayload(intake);
+
+    state.intakes.unshift(intake);
+
+    await saveState(state);
+
+    sendHtml(response, renderCustomerIntake("received"));
+
+    return;
+
   }
 
 
@@ -1464,7 +1496,7 @@ async function routeRequest(request: any, response: any) {
 
       ok: true,
 
-      service: `${SHOP_NAME} Android Management Backend`,
+      service: `${SHOP_NAME} Installment Management Backend`,
 
       version: VERSION,
 
@@ -1492,13 +1524,6 @@ async function routeRequest(request: any, response: any) {
 
     return;
 
-  }
-
-  // Finance, repayment, customer-contract, and legacy agent routes are kept
-  // below only as commented-out migration-era implementation. They are not
-  // reachable in Android Management mode.
-  if (LEGACY_FINANCING_FEATURES_DISABLED && isRetiredFinancingPath(url.pathname)) {
-    throw new HttpError(410, "This legacy financing endpoint has been retired");
   }
 
 
@@ -19908,15 +19933,6 @@ function requiresAdminAuth(pathname: string) {
 
 }
 
-function isRetiredFinancingPath(pathname: string) {
-  // Android Management, authentication, and health remain the complete public
-  // API surface after the financing product was retired.
-  return pathname.startsWith("/api/") &&
-    pathname !== "/api/health" &&
-    !pathname.startsWith("/api/auth/") &&
-    !pathname.startsWith("/api/android/");
-}
-
 
 
 function androidManagementCallbackBaseUrl() {
@@ -22063,12 +22079,6 @@ async function runSelfTest() {
   if (!requiresAdminAuth("/api/android/enrollment-tokens/test/qr")) throw new Error("Expected enrollment QR access to require an admin session");
 
   if (!requiresAdminAuth("/api/android/enrollment-tokens/work-profile")) throw new Error("Expected Work Profile enrollment to require an admin session");
-
-  if (!isRetiredFinancingPath("/api/payments/paybill-callback")) throw new Error("Expected legacy payment callbacks to be retired");
-
-  if (!isRetiredFinancingPath("/api/contracts/KIS-1/payments")) throw new Error("Expected legacy payment APIs to be retired");
-
-  if (isRetiredFinancingPath("/api/android/devices")) throw new Error("Expected Android Management APIs to remain available");
 
   if (!isValidAndroidSignupState(randomBytes(32).toString("base64url"))) throw new Error("Expected Android signup state to validate");
 
